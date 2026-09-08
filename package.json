@@ -1,0 +1,21 @@
+{
+  "name": "universal-dashboard",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "workspaces": [
+    "packages/*",
+    "mcp"
+  ],
+  "scripts": {
+    "build": "npm run build -w @ud/mcp",
+    "build:mcp": "npm run build -w @ud/mcp",
+    "typecheck": "npm run typecheck --workspaces --if-present",
+    "dev:mcp": "npm run dev -w @ud/mcp -- serve",
+    "install:local": "bash scripts/install-local.sh",
+    "release": "bash scripts/release.sh"
+  },
+  "devDependencies": {
+    "typescript": "^5.9.2"
+  }
+}

@@ -1,0 +1,76 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+
+      - name: Verify version matches tag
+        run: |
+          set -euo pipefail
+          tag="${GITHUB_REF_NAME}"
+          ver="${tag#v}"
+          man="$(jq -r .version manifest.json)"
+          [[ "$man" == "$ver" ]] || {
+            echo "manifest.json version ($man) != tag ($ver)" >&2
+            exit 1
+          }
+
+      - name: Install and typecheck
+        run: |
+          npm ci
+          npm run typecheck
+
+      - name: Rebuild and confirm bin is committed
+        run: |
+          set -euo pipefail
+          cp -a bin/universal-dashboard /tmp/ud.before
+          cp -a bin/quickjs.wasm /tmp/wasm.before
+          npm run build
+          cmp -s /tmp/ud.before bin/universal-dashboard || {
+            echo "bin/universal-dashboard drifted from sources — rebuild and commit before tagging" >&2
+            exit 1
+          }
+          cmp -s /tmp/wasm.before bin/quickjs.wasm || {
+            echo "bin/quickjs.wasm drifted from sources — rebuild and commit before tagging" >&2
+            exit 1
+          }
+
+      - name: Extract changelog section
+        id: notes
+        run: |
+          set -euo pipefail
+          ver="${GITHUB_REF_NAME#v}"
+          awk -v ver="$ver" '
+            $0 ~ "^## \\[" ver "\\]" { keep=1; next }
+            keep && $0 ~ /^## \[/ { exit }
+            keep { print }
+          ' CHANGELOG.md > /tmp/notes.md
+          if [[ ! -s /tmp/notes.md ]]; then
+            echo "Release ${GITHUB_REF_NAME}" > /tmp/notes.md
+          fi
+
+      - name: Publish GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          name: ${{ github.ref_name }}
+          body_path: /tmp/notes.md
+          generate_release_notes: false
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

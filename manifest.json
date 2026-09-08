@@ -1,0 +1,24 @@
+{
+  "schemaVersion": 1,
+  "id": "juienpro.universal-dashboard",
+  "name": "Universal Dashboard",
+  "version": "0.1.0",
+  "author": "juienpro",
+  "license": "MIT",
+  "description": "One Omarchy plugin for agent-built dashboards — layouts, live data, saved views.",
+  "homepage": "https://github.com/juienpro/omarchy-universal-dashboard",
+  "kinds": ["bar-widget"],
+  "entryPoints": {
+    "barWidget": "qml/BarWidget.qml"
+  },
+  "barWidget": {
+    "displayName": "Universal Dashboard",
+    "description": "Live agent dashboard with saved views and keyboard shortcuts",
+    "category": "AI",
+    "aliases": ["dashboard", "ud", "universal-dashboard", "agent-screen"],
+    "allowMultiple": false,
+    "defaultSection": "right",
+    "defaults": {},
+    "schema": []
+  }
+}

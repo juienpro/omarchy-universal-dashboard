@@ -1,0 +1,25 @@
+# Dependencies & build
+node_modules
+dist
+mcp/dist
+*.tsbuildinfo
+
+# Local / editor
+.cursor/
+.mcp.json
+.DS_Store
+.cache/
+*.log
+coverage/
+
+# Secrets & runtime junk
+.env
+*.db
+*.db-wal
+*.db-shm
+*.sav
+savedstate.sav
+
+# Legacy docs tooling (if present)
+docs/.vitepress/cache
+docs/.vitepress/dist
