@@ -16,6 +16,7 @@ export const RENDERED_WIDGET_TYPES = [
   "ScrollArea",
   "Title",
   "Text",
+  "Marquee",
   "Markdown",
   "Icon",
   "Badge",

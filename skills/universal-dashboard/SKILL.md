@@ -45,6 +45,7 @@ Workarounds are allowed **only** when the user explicitly requests that specific
 
 - Reading or modifying Universal Dashboard / Omarchy plugin source to implement dashboard features
 - Contourner un trou de schéma (prop absente) avec un autre widget ou un champ dérivé
+- `ud_screen_show` with `replace: true` when other widgets must stay (style/prop updates → same `id`, omit `replace` or `false`)
 - `Stat` / `Table` / `Icon` with `dataset` **without** a prior successful upsert (+ refresh)
 - Dumping live numbers into a giant `Markdown` blob
 - Using `Table` for hour→icon / forecast strips — use `HorizontalTiles` instead
@@ -61,9 +62,14 @@ Workarounds are allowed **only** when the user explicitly requests that specific
 |---|---|---|
 | **View** | IR + layout (widgets on screen) | You via `ud_screen_show` / views |
 | **Dataset** | Named JSON **cache** + last fetch / error | Plugin files under `datasets/` |
-| **Source** | HTTP GET (+ optional `jsonPath`) + optional **QuickJS `transform`** + `refreshIntervalSec` | You **once** at create; plugin **runs** forever after |
+| **Source** | HTTP GET **or** parent `dataset` / `datasets` (+ optional `jsonPath` on single) + optional **QuickJS `transform`** + `refreshIntervalSec` | You **once** at create; plugin **runs** forever after |
 
 **Live / recurring data** = dataset with source (+ transform when you need derived fields) + interval, then widgets bound to that key.
+
+**Derived dataset** — no extra HTTP; parents must exist; **cycles rejected**; refreshing a parent **cascades** to dependents:
+
+- Single: `source: { dataset: "<parent>", jsonPath? }` — transform receives that payload
+- Multi: `source: { datasets: ["a", "b", …] }` — transform receives `{ a: …, b: … }` (no top-level `jsonPath`; slice in transform)
 
 **One-shot / demo** only: `widget.data` → ephemeral `_screen.<id>` (no refresh, lost on view reload).
 
@@ -77,8 +83,8 @@ Workarounds are allowed **only** when the user explicitly requests that specific
 
 When the user wants data that **stays correct over time**:
 
-1. `ud_datasets_upsert` `{ key, source: { url, jsonPath? }, refreshIntervalSec, transform? }`
-2. `ud_datasets_refresh` `{ key }` — check summarized payload (incl. fields added by transform)
+1. `ud_datasets_upsert` `{ key, source: { url, jsonPath? } | { dataset, jsonPath? } | { datasets: [..] }, refreshIntervalSec, transform? }`
+2. `ud_datasets_refresh` `{ key }` — check summarized payload (incl. fields added by transform); parent refresh also refreshes dependents
 3. `ud_screen_show` widgets with `props.dataset: key` + `field` / `glyphField` (and `view: { slug, title }` on create)
 4. **Do not** poll or re-fetch yourself — the panel runs `refresh-due` on open and every ~30s
 
@@ -86,12 +92,14 @@ Derive `key` / `slug` / labels from the user's request — not from canned demos
 
 ### QuickJS `transform` (optional)
 
-Function **body** only — sync `(data) => …` — run in a WASM sandbox after GET + `jsonPath`:
+Function **body** only — sync `(data) => …` — run in a WASM sandbox after resolve + `jsonPath` (single parent / HTTP):
 
 - Must **`return`** a JSON-serializable value (becomes `dataset.data`)
 - **No** `fetch`, FS, modules, `async`, or host APIs
 - Limits: ~1s CPU, ~8 MiB memory
-- Use to reshape API JSON for widgets (derived fields, row lists, display strings) — **not** conditions inside the IR
+- Use to reshape API JSON or parent payload(s) for widgets — **not** conditions inside the IR
+- Prefer **derived** datasets (`source.dataset` / `source.datasets`) instead of re-fetching the same URL
+- Multi-parent example: `return { total: data.orders.length + data.returns.length }` when `datasets: ["orders","returns"]`
 - **`Icon.glyph` / `glyphField` must be a real character** (emoji or Nerd Font codepoint). Never invent slug names like `"ok"` / `"warn-icon"` as the glyph — those render as literal text.
 
 ## Views
@@ -101,7 +109,8 @@ Pass **top-level** `view: { slug, title? }` on `ud_screen_show` (sibling of `wid
 | Intent | Do |
 |---|---|
 | Create live dashboard | upsert dataset (+ transform) → refresh → show widgets + `view:` |
-| Add widget | `ud_screen_show` `replace: false` |
+| Add / update widget | `ud_screen_show` with same `id` — **omit `replace` or `replace: false`** (upsert; other widgets stay) |
+| Wipe screen to one widget | `ud_screen_show` **`replace: true`** only — never for style/prop tweaks |
 | Wider grid | `ud_screen_grid` `{ "columns": N }` then place with `column` / `colspan` |
 | Clear screen | `ud_screen_clear` (datasets remain) |
 | Load | `ud_views_list` → `ud_screen_load_view` |
@@ -111,7 +120,8 @@ Pass **top-level** `view: { slug, title? }` on `ud_screen_show` (sibling of `wid
 
 ## Composition & props
 
-- One `ud_screen_show` = one widget. More widgets: `replace: false`.
+- One `ud_screen_show` = one widget. More widgets / updates: default **`replace: false`** (upsert by `id`).
+- **`replace: true` = scrub the whole screen**, then show only that widget. Do **not** use it to change size, color, text, or placement of an existing widget — same `id` + `replace: false` (or omit `replace`).
 - Size tokens (text): `xs` | `sm` | `md` | `lg` | `xl` | `2xl`
 - **Icon** sizes (dedicated px, same trick as Omarchy weather: raw `pixelSize`, not `Style.font`): `xs`…`6xl` | `hero`
   - `2xl` / `hero` = **64px** (native weather panel hero)
@@ -126,11 +136,13 @@ Pass **top-level** `view: { slug, title? }` on `ud_screen_show` (sibling of `wid
 
 ## Widgets (MVP)
 
-Rendered: `Stack`, `Group`, `Grid`, `Container`, `Panel`, `Card`, `ScrollArea`, `Title`, `Text`, `Markdown`, `Icon`, `Badge`, `Stat`, `Divider`, `Table`, `HorizontalTiles`, `Chart`.
+Rendered: `Stack`, `Group`, `Grid`, `Container`, `Panel`, `Card`, `ScrollArea`, `Title`, `Text`, `Marquee`, `Markdown`, `Icon`, `Badge`, `Stat`, `Divider`, `Table`, `HorizontalTiles`, `Chart`.
 
 Placeholder: `Map`, `List`, `Timeline`, `Image`, `Button`. (`Chart` kinds `heatmap` / `treemap` / `radar` are stubs.)
 
 `Markdown` = short prose / notes only — **not** for live metrics.
+
+`Marquee` = horizontal scrolling ticker. Props: `text` / `textField` (+ optional `dataset`, `separator` to join all rows), `speed` (px/s, default 40), `direction` (`left`|`right`), `gap`, `pauseOnHover` (default true), `onlyIfOverflow`, plus usual text style (`size`, `color`, `weight`, `italic`). Call `ud_widgets_spec` `{ "type": "Marquee" }` for the schema.
 
 `Table` = numeric/text columns (`columns: [{ label, field }, …]`). **Not** for hour→icon strips.
 
@@ -150,6 +162,29 @@ Placeholder: `Map`, `List`, `Timeline`, `Image`, `Button`. (`Chart` kinds `heatm
     "props": { "label": "…", "dataset": "<key>", "field": "<field>" }
   },
   "column": 1,
+  "index": 0,
+  "view": { "slug": "<slug>", "title": "<title>" }
+}
+```
+
+**Marquee ticker** — static or live (`textField` + `dataset`; multi-row values joined with `separator`):
+
+```json
+{
+  "widget": {
+    "id": "headlines",
+    "type": "Marquee",
+    "props": {
+      "dataset": "<key>",
+      "textField": "title",
+      "separator": "  ·  ",
+      "speed": 50,
+      "size": "md",
+      "color": "muted"
+    }
+  },
+  "column": 1,
+  "colspan": 3,
   "index": 0,
   "view": { "slug": "<slug>", "title": "<title>" }
 }

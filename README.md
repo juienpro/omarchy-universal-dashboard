@@ -9,6 +9,7 @@ You describe what you want. The agent lays it out. Data refreshes on its own. Yo
 - **One plugin, many dashboards** — stop installing a widget per use case
 - **Agent-built layouts** — create and update views from your coding harness
 - **Live data** — define a source once; the panel keeps it fresh
+- **Scrolling marquee** — ticker-style text bands (`Marquee`) with live dataset binding
 - **Custom refresh per data source** — each live feed has its own cache and refresh interval
 - **Saved views** — switch between dashboards with the keyboard (`←`/`→` or `n`/`p`)
 - **View carousel** — auto-cycle saved views on a timer (`c`, or MCP `ud_views_carousel`); `Shift+C` cycles transition (fade / slide / scale); `+` / `-` adjust delay while auto-cycle is on
@@ -93,9 +94,11 @@ Omarchy reloads Hyprland on save. Suggested chord: **SUPER + CTRL + U** (same fa
 |---|---|
 | **View** | Layout of widgets on the panel |
 | **Dataset** | Named data cache with a fetch schedule |
-| **Source** | HTTP URL (optional path + transform) refreshed automatically |
+| **Source** | HTTP URL **or** one/more parent datasets (optional path + transform), refreshed automatically |
 
 The agent builds views and wires widgets to datasets. The plugin refreshes due datasets on open and about every 30 seconds. One-off data can still be pushed for a single screen without a scheduled source.
+
+A dataset may derive from parents: `source.dataset` (one) or `source.datasets` (two+, transform gets `{ [key]: data }`). Cycles are rejected. Refreshing any parent cascades to dependents.
 
 ## MCP tools (`ud_`)
 
@@ -104,14 +107,14 @@ The agent builds views and wires widgets to datasets. The plugin refreshes due d
 | `ud_screen_get` | Live screen (IR + layout) |
 | `ud_screen_clear` | Clear screen (datasets kept) |
 | `ud_widgets_spec` | Widget props (JSON Schema); optional `{ type }` filter |
-| `ud_screen_show` | Show a widget; optional `view:{slug,title?}` to save |
+| `ud_screen_show` | Show a widget; default upsert by `id` (`replace: false`); `replace: true` wipes the screen; optional `view:{slug,title?}` to save |
 | `ud_screen_grid` | Placement grid columns (1–26) |
 | `ud_screen_save_view` | Save live screen as a view |
 | `ud_screen_load_view` | Load a saved view |
 | `ud_views_list` | List saved views |
 | `ud_views_delete` | Delete a view |
 | `ud_views_carousel` | Toggle auto-cycle of views (`enabled`, optional `views[]`, `intervalSec`, `transition`) |
-| `ud_datasets_upsert` | Create/update a dataset source |
+| `ud_datasets_upsert` | Create/update a dataset (HTTP, single parent, or multi-parent) |
 | `ud_datasets_get` | Read one dataset |
 | `ud_datasets_list` | List datasets |
 | `ud_datasets_refresh` | Force-refresh one dataset |

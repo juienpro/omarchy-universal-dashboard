@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-09-09
+
+### Added
+
+- `Marquee` widget: seamless horizontal ticker (speed, direction, gap, pause on hover, optional overflow-only); binds `text` / `textField` + `dataset`, joins multi-row fields with `separator`
+- Derived datasets: `source.dataset` (one parent) or `source.datasets` (two+; transform gets `{ [key]: data }`); cycles rejected; refreshing a parent cascades to dependents
+
+### Changed
+
+- `ud_screen_show`: default `replace` is now `false` (upsert by `widget.id`; other widgets kept). Pass `replace: true` only to wipe the screen and show a single widget. MCP description + skill warn against using `replace: true` for style/prop updates.
+
 ## [0.2.0] - 2026-09-09
 
 ### Added

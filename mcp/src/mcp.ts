@@ -83,7 +83,7 @@ const tools = [
   {
     name: "ud_screen_show",
     description:
-      "Show a widget on the live dashboard. Placement (top-level): column 1-based (1..grid.columns), index 0-based row, colspan. Omit column for horizontal-first auto-flow. Default grid is 3 columns (ud_screen_grid to change). For live data: bind props.dataset to a key from ud_datasets_upsert (no widget.data). HorizontalTiles: pass widget.children[] as the per-row template (Icon/Text/Stat/Stack…). Creating a dashboard: pass top-level view:{slug,title?} (sibling of widget).",
+      "Show a widget on the live dashboard. Default replace:false = upsert by widget.id (other widgets kept). replace:true wipes the whole screen then shows only this widget — never use for style/prop updates. Placement (top-level): column 1-based (1..grid.columns), index 0-based row, colspan. Omit column for horizontal-first auto-flow. Default grid is 3 columns (ud_screen_grid to change). For live data: bind props.dataset to a key from ud_datasets_upsert (no widget.data). HorizontalTiles: pass widget.children[] as the per-row template (Icon/Text/Stat/Stack…). Creating a dashboard: pass top-level view:{slug,title?} (sibling of widget).",
     inputSchema: {
       type: "object",
       properties: {
@@ -103,7 +103,11 @@ const tools = [
           },
           required: ["id", "type"],
         },
-        replace: { type: "boolean" },
+        replace: {
+          type: "boolean",
+          description:
+            "false (default): add or update this widget.id only. true: clear the screen and show only this widget.",
+        },
         column: {
           type: "integer",
           minimum: 1,
@@ -208,25 +212,44 @@ const tools = [
   {
     name: "ud_datasets_upsert",
     description:
-      "Create/update a persisted dataset: HTTP GET JSON source + refreshIntervalSec + optional QuickJS transform body. Plugin refreshes automatically; agent does not poll.",
+      "Create/update a persisted dataset: HTTP GET, single parent (source.dataset), or multi-parent (source.datasets) + refreshIntervalSec + optional QuickJS transform. Derived sources re-read parent cache(s); cycles rejected. Refreshing a parent cascades to dependents. Plugin refreshes automatically; agent does not poll.",
     inputSchema: {
       type: "object",
       properties: {
         key: { type: "string", description: "Persisted slug e.g. orders-live (not _screen.*)" },
         source: {
           type: "object",
+          description:
+            "Exactly one of: { url, headers?, jsonPath? } HTTP GET; { dataset, jsonPath? } one parent; { datasets: [key,…] } two+ parents (transform gets { [key]: data }).",
           properties: {
-            url: { type: "string" },
+            url: {
+              type: "string",
+              description: "HTTP(S) JSON URL (mutually exclusive with dataset / datasets)",
+            },
+            dataset: {
+              type: "string",
+              description:
+                "Single parent key — transform receives that payload (mutually exclusive with url / datasets).",
+            },
+            datasets: {
+              type: "array",
+              items: { type: "string" },
+              minItems: 2,
+              description:
+                "Two or more parent keys — transform receives { [parentKey]: data }. No jsonPath; slice in transform.",
+            },
             headers: { type: "object", additionalProperties: { type: "string" } },
-            jsonPath: { type: "string", description: "Optional dot path into JSON body" },
+            jsonPath: {
+              type: "string",
+              description: "Optional dot path into HTTP body or single-parent payload (not with datasets)",
+            },
           },
-          required: ["url"],
         },
         refreshIntervalSec: { type: "integer", minimum: 60, description: "Default 600" },
         transform: {
           type: "string",
           description:
-            "Optional QuickJS sync function body for (data) => … after GET+jsonPath. Must return JSON. No fetch/fs/async. Omit to keep existing; pass \"\" to clear.",
+            "Optional QuickJS sync function body for (data) => … after resolve(+jsonPath). Multi-parent: data is { [key]: payload }. Must return JSON. No fetch/fs/async. Omit to keep existing; pass \"\" to clear.",
         },
       },
       required: ["key", "source"],
@@ -250,7 +273,8 @@ const tools = [
   },
   {
     name: "ud_datasets_refresh",
-    description: "Force-fetch one dataset now (after upsert). Verify payload before binding widgets.",
+    description:
+      "Force-refresh one dataset now (after upsert). HTTP sources re-GET; derived sources re-read the parent cache. Cascades to dependents. Verify payload before binding widgets.",
     inputSchema: {
       type: "object",
       properties: { key: { type: "string" } },
@@ -302,7 +326,7 @@ async function callTool(name: string, args: Record<string, unknown>): Promise<To
         const widget = widgetSpecSchema.parse(args.widget) as WidgetSpec;
         showOnScreen({
           widget,
-          replace: args.replace !== false,
+          replace: args.replace === true,
           column: typeof args.column === "number" ? args.column : undefined,
           index: typeof args.index === "number" ? args.index : undefined,
           colspan: typeof args.colspan === "number" ? args.colspan : undefined,

@@ -412,6 +412,53 @@ Item {
       }
     }
 
+    // ---- Marquee (see MarqueeWidget.qml) ----
+    Item {
+      id: marqueeWrap
+      visible: node && node.type === "Marquee"
+      width: parent.width
+
+      readonly property int marqueePx: root.fontPx(Model.fontToken(props.size))
+
+      height: visible
+        ? (marqueeLoader.item ? marqueeLoader.item.implicitHeight : Math.max(marqueePx + 4, 20))
+        : 0
+      implicitHeight: height
+
+      Loader {
+        id: marqueeLoader
+        width: parent.width
+        height: item ? item.implicitHeight : Math.max(marqueeWrap.marqueePx + 4, 20)
+        active: marqueeWrap.visible
+        source: active ? Qt.resolvedUrl("MarqueeWidget.qml") : ""
+
+        function sync() {
+          if (!item) return
+          item.width = marqueeWrap.width
+          item.props = root.props
+          item.screen = root.screen
+          item.colors = root.colors
+          item.dataRow = root.dataRow
+          item.uiFont = root.uiFont
+          item.pixelSize = marqueeWrap.marqueePx
+        }
+
+        onLoaded: sync()
+      }
+
+      onWidthChanged: if (marqueeLoader.item) marqueeLoader.sync()
+      onMarqueePxChanged: if (marqueeLoader.item) marqueeLoader.sync()
+    }
+
+    Connections {
+      target: root
+      enabled: marqueeWrap.visible
+      function onPropsChanged() { if (marqueeLoader.item) marqueeLoader.sync() }
+      function onScreenChanged() { if (marqueeLoader.item) marqueeLoader.sync() }
+      function onColorsChanged() { if (marqueeLoader.item) marqueeLoader.sync() }
+      function onDataRowChanged() { if (marqueeLoader.item) marqueeLoader.sync() }
+    }
+
     // ---- Chart (Canvas; see ChartWidget.qml) ----
     // Wrapper Item owns height/implicitHeight — never set Loader.implicitHeight (read-only).
     Item {

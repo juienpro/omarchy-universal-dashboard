@@ -188,6 +188,30 @@ function boundText(props, screen, dataRow) {
   return props.text !== undefined && props.text !== null ? String(props.text) : ""
 }
 
+/**
+ * Marquee / ticker text. With dataset + textField and multiple rows, joins
+ * all field values (separator default " · "). Otherwise same as boundText.
+ */
+function boundMarqueeText(props, screen, dataRow) {
+  if (!props) return ""
+  if (props.textField && props.dataset && (dataRow === undefined || dataRow === null)) {
+    var rows = asRows(datasetOf(screen, props.dataset))
+    if (rows.length > 1) {
+      var sep = props.separator !== undefined && props.separator !== null
+        ? String(props.separator)
+        : " · "
+      var parts = []
+      for (var i = 0; i < rows.length; i++) {
+        var val = readField(rows[i], props.textField)
+        if (val !== undefined && val !== null && String(val).length)
+          parts.push(String(val))
+      }
+      if (parts.length) return parts.join(sep)
+    }
+  }
+  return boundText(props, screen, dataRow)
+}
+
 function formatValue(value) {
   if (value === null || value === undefined) return "—"
   if (typeof value === "number") {

@@ -532,9 +532,11 @@ function syncDatasetIntoLiveScreen(key: string, data: unknown) {
 }
 
 export async function refreshDataset(key: string) {
-  const rec = await refreshDatasetRecord(key);
-  syncDatasetIntoLiveScreen(key, rec.data);
-  return rec;
+  const tree = await refreshDatasetRecord(key);
+  for (const rec of tree) {
+    syncDatasetIntoLiveScreen(rec.key, rec.data);
+  }
+  return tree[0]!;
 }
 
 export async function refreshDueDatasets() {

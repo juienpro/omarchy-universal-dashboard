@@ -9,7 +9,7 @@ import {
 } from "./paths.js";
 import { runTransform } from "./transform.js";
 
-export type DatasetSource = {
+export type DatasetHttpSource = {
   /** HTTP GET URL returning JSON */
   url: string;
   /** Optional request headers */
@@ -21,11 +21,31 @@ export type DatasetSource = {
   jsonPath?: string;
 };
 
+export type DatasetDerivedSource = {
+  /** Parent persisted dataset key — reads its cached `data` (no HTTP). */
+  dataset: string;
+  /**
+   * Dot path into the parent payload (e.g. "items.0").
+   * Empty / omitted = whole parent data.
+   */
+  jsonPath?: string;
+};
+
+export type DatasetMultiDerivedSource = {
+  /**
+   * Two or more parent keys. Resolve builds `{ [parentKey]: data }`.
+   * No top-level jsonPath — slice/join in `transform`.
+   */
+  datasets: string[];
+};
+
+export type DatasetSource = DatasetHttpSource | DatasetDerivedSource | DatasetMultiDerivedSource;
+
 export type DatasetRecord = {
   key: string;
   source: DatasetSource;
   /**
-   * Optional QuickJS function body `(data) => …` run after GET+jsonPath.
+   * Optional QuickJS function body `(data) => …` run after resolve+jsonPath.
    * Sync only; must return JSON-serializable value.
    */
   transform?: string;
@@ -58,6 +78,31 @@ export function isPersistedDatasetKey(key: string): boolean {
 
 export function isEphemeralDatasetKey(key: string): boolean {
   return key.startsWith("_screen.") || key.startsWith("_url.");
+}
+
+export function isSingleDerivedSource(source: DatasetSource): source is DatasetDerivedSource {
+  return "dataset" in source && typeof (source as DatasetDerivedSource).dataset === "string";
+}
+
+export function isMultiDerivedSource(source: DatasetSource): source is DatasetMultiDerivedSource {
+  return "datasets" in source && Array.isArray((source as DatasetMultiDerivedSource).datasets);
+}
+
+export function isDerivedSource(
+  source: DatasetSource,
+): source is DatasetDerivedSource | DatasetMultiDerivedSource {
+  return isSingleDerivedSource(source) || isMultiDerivedSource(source);
+}
+
+export function isHttpSource(source: DatasetSource): source is DatasetHttpSource {
+  return "url" in source && typeof (source as DatasetHttpSource).url === "string";
+}
+
+/** Parent dataset keys this source depends on (empty for HTTP). */
+export function parentKeysOf(source: DatasetSource): string[] {
+  if (isMultiDerivedSource(source)) return source.datasets.slice();
+  if (isSingleDerivedSource(source)) return [source.dataset];
+  return [];
 }
 
 function assertPersistedKey(key: string) {
@@ -125,11 +170,68 @@ function persistDataset(rec: DatasetRecord): DatasetRecord {
   return rec;
 }
 
+function parseJsonPath(obj: Record<string, unknown>): string | undefined {
+  return obj.jsonPath !== undefined && obj.jsonPath !== null && String(obj.jsonPath).trim()
+    ? String(obj.jsonPath).trim()
+    : undefined;
+}
+
+const MAX_MULTI_PARENTS = 16;
+
 function parseSource(raw: unknown): DatasetSource {
   if (!raw || typeof raw !== "object") throw new Error("source is required");
   const obj = raw as Record<string, unknown>;
-  const url = String(obj.url || "").trim();
-  if (!url) throw new Error("source.url is required");
+  const hasUrl = obj.url !== undefined && obj.url !== null && String(obj.url).trim() !== "";
+  const hasDataset =
+    obj.dataset !== undefined && obj.dataset !== null && String(obj.dataset).trim() !== "";
+  const hasDatasets = obj.datasets !== undefined && obj.datasets !== null;
+
+  const modes = [hasUrl, hasDataset, hasDatasets].filter(Boolean).length;
+  if (modes > 1) {
+    throw new Error("source must have exactly one of url, dataset, or datasets");
+  }
+  if (modes === 0) {
+    throw new Error("source.url, source.dataset, or source.datasets is required");
+  }
+
+  const jsonPath = parseJsonPath(obj);
+
+  if (hasDatasets) {
+    if (jsonPath) {
+      throw new Error("source.jsonPath is not supported with source.datasets — slice in transform");
+    }
+    if (!Array.isArray(obj.datasets)) {
+      throw new Error("source.datasets must be an array of dataset keys");
+    }
+    if (obj.datasets.length < 2) {
+      throw new Error("source.datasets needs at least 2 keys (use source.dataset for a single parent)");
+    }
+    if (obj.datasets.length > MAX_MULTI_PARENTS) {
+      throw new Error(`source.datasets too many parents (max ${MAX_MULTI_PARENTS})`);
+    }
+    const parents: string[] = [];
+    const seen = new Set<string>();
+    for (const item of obj.datasets) {
+      const parentKey = String(item || "")
+        .trim()
+        .toLowerCase();
+      assertPersistedKey(parentKey);
+      if (seen.has(parentKey)) {
+        throw new Error(`source.datasets duplicate key: ${parentKey}`);
+      }
+      seen.add(parentKey);
+      parents.push(parentKey);
+    }
+    return { datasets: parents };
+  }
+
+  if (hasDataset) {
+    const parentKey = String(obj.dataset).trim().toLowerCase();
+    assertPersistedKey(parentKey);
+    return { dataset: parentKey, ...(jsonPath ? { jsonPath } : {}) };
+  }
+
+  const url = String(obj.url).trim();
   let parsed: URL;
   try {
     parsed = new URL(url);
@@ -145,11 +247,90 @@ function parseSource(raw: unknown): DatasetSource {
           Object.entries(obj.headers as Record<string, unknown>).map(([k, v]) => [k, String(v)]),
         )
       : undefined;
-  const jsonPath =
-    obj.jsonPath !== undefined && obj.jsonPath !== null && String(obj.jsonPath).trim()
-      ? String(obj.jsonPath).trim()
-      : undefined;
-  return { url, headers, jsonPath };
+  return { url, ...(headers ? { headers } : {}), ...(jsonPath ? { jsonPath } : {}) };
+}
+
+/**
+ * Ensure derived source does not introduce a cycle: walk all ancestors of every
+ * parent; if `key` appears, the new edge would close a loop.
+ */
+function assertAcyclicDerived(key: string, source: DatasetSource) {
+  const roots = parentKeysOf(source);
+  if (roots.length === 0) return;
+  for (const p of roots) {
+    if (p === key) {
+      throw new Error(`Dataset "${key}" cannot derive from itself`);
+    }
+    if (!getDataset(p)) {
+      throw new Error(`Parent dataset not found: ${p}`);
+    }
+  }
+  const stack = roots.slice();
+  const visited = new Set<string>();
+  while (stack.length) {
+    const cur = stack.pop()!;
+    if (cur === key) {
+      throw new Error(`Dataset cycle detected involving "${key}"`);
+    }
+    if (visited.has(cur)) continue;
+    visited.add(cur);
+    const rec = getDataset(cur);
+    if (!rec) {
+      throw new Error(`Parent dataset not found: ${cur}`);
+    }
+    for (const p of parentKeysOf(rec.source)) {
+      stack.push(p);
+    }
+  }
+}
+
+/** Direct children that depend on `parentKey` via dataset or datasets. */
+export function dependentsOf(parentKey: string): string[] {
+  const out: string[] = [];
+  for (const meta of listDatasets()) {
+    const rec = getDataset(meta.key);
+    if (!rec || !isDerivedSource(rec.source)) continue;
+    if (parentKeysOf(rec.source).includes(parentKey)) out.push(rec.key);
+  }
+  return out.sort((a, b) => a.localeCompare(b));
+}
+
+/** Topological order: parents before derived children. Isolated / HTTP first by key. */
+function topoSortKeys(keys: string[]): string[] {
+  const keySet = new Set(keys);
+  const indegree = new Map<string, number>();
+  const children = new Map<string, string[]>();
+  for (const k of keys) {
+    indegree.set(k, 0);
+    children.set(k, []);
+  }
+  for (const k of keys) {
+    const rec = getDataset(k);
+    if (!rec || !isDerivedSource(rec.source)) continue;
+    for (const p of parentKeysOf(rec.source)) {
+      if (!keySet.has(p)) continue;
+      children.get(p)!.push(k);
+      indegree.set(k, (indegree.get(k) || 0) + 1);
+    }
+  }
+  const queue = keys.filter((k) => (indegree.get(k) || 0) === 0).sort((a, b) => a.localeCompare(b));
+  const ordered: string[] = [];
+  while (queue.length) {
+    const k = queue.shift()!;
+    ordered.push(k);
+    const next = (children.get(k) || []).slice().sort((a, b) => a.localeCompare(b));
+    for (const c of next) {
+      const d = (indegree.get(c) || 0) - 1;
+      indegree.set(c, d);
+      if (d === 0) queue.push(c);
+    }
+    queue.sort((a, b) => a.localeCompare(b));
+  }
+  // Cycle leftover (should not happen after upsert checks) — append remaining
+  for (const k of keys) {
+    if (!ordered.includes(k)) ordered.push(k);
+  }
+  return ordered;
 }
 
 export function upsertDataset(input: {
@@ -164,6 +345,7 @@ export function upsertDataset(input: {
     .toLowerCase();
   assertPersistedKey(key);
   const source = parseSource(input.source);
+  assertAcyclicDerived(key, source);
   const refreshIntervalSec = Math.max(MIN_INTERVAL, Math.floor(input.refreshIntervalSec ?? 600));
   const existing = getDataset(key);
   const now = nowIso();
@@ -215,7 +397,7 @@ function readPath(data: unknown, path?: string): unknown {
   return cur;
 }
 
-async function fetchJson(source: DatasetSource): Promise<unknown> {
+async function fetchHttpJson(source: DatasetHttpSource): Promise<unknown> {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
   try {
@@ -239,6 +421,44 @@ async function fetchJson(source: DatasetSource): Promise<unknown> {
   } finally {
     clearTimeout(timer);
   }
+}
+
+function readParentPayload(parentKey: string): unknown {
+  const parent = getDataset(parentKey);
+  if (!parent) {
+    throw new Error(`Parent dataset not found: ${parentKey}`);
+  }
+  if (parent.data === undefined || parent.data === null) {
+    throw new Error(`Parent dataset "${parentKey}" has no data yet — refresh it first`);
+  }
+  return parent.data;
+}
+
+function resolveSingleDerivedData(source: DatasetDerivedSource): unknown {
+  const payload = readParentPayload(source.dataset);
+  const sliced = readPath(payload, source.jsonPath);
+  if (sliced === undefined) {
+    throw new Error(
+      `jsonPath "${source.jsonPath}" not found in parent dataset "${source.dataset}"`,
+    );
+  }
+  return sliced;
+}
+
+/** Build `{ [parentKey]: data }` for multi-parent sources. */
+function resolveMultiDerivedData(source: DatasetMultiDerivedSource): Record<string, unknown> {
+  const out: Record<string, unknown> = {};
+  for (const parentKey of source.datasets) {
+    out[parentKey] = readParentPayload(parentKey);
+  }
+  return out;
+}
+
+async function resolveSourceData(source: DatasetSource): Promise<unknown> {
+  if (isMultiDerivedSource(source)) return resolveMultiDerivedData(source);
+  if (isSingleDerivedSource(source)) return resolveSingleDerivedData(source);
+  if (isHttpSource(source)) return fetchHttpJson(source);
+  throw new Error("Invalid dataset source");
 }
 
 function nextRefreshIso(intervalSec: number, from = Date.now()): string {
@@ -270,13 +490,17 @@ export function summarizeDataset(rec: DatasetRecord) {
   };
 }
 
-export async function refreshDatasetRecord(key: string): Promise<DatasetRecord> {
+/** Refresh one dataset only (no cascade). Persists error and rethrows on failure. */
+async function refreshOne(key: string): Promise<DatasetRecord> {
   assertPersistedKey(key);
   const rec = getDataset(key);
   if (!rec) throw new Error(`Dataset not found: ${key}`);
+  if (isDerivedSource(rec.source)) {
+    assertAcyclicDerived(key, rec.source);
+  }
   const now = nowIso();
   try {
-    let data = await fetchJson(rec.source);
+    let data = await resolveSourceData(rec.source);
     if (rec.transform) {
       data = await runTransform(rec.transform, data);
     }
@@ -302,6 +526,25 @@ export async function refreshDatasetRecord(key: string): Promise<DatasetRecord> 
   }
 }
 
+/**
+ * Refresh a dataset, then cascade to dependents (depth-first).
+ * Returns every successfully refreshed record (primary first).
+ * Dependent failures are recorded on those datasets but do not fail the parent.
+ */
+export async function refreshDatasetRecord(key: string): Promise<DatasetRecord[]> {
+  const primary = await refreshOne(key);
+  const out: DatasetRecord[] = [primary];
+  for (const child of dependentsOf(key)) {
+    try {
+      const childTree = await refreshDatasetRecord(child);
+      out.push(...childTree);
+    } catch {
+      // Child error already persisted by refreshOne
+    }
+  }
+  return out;
+}
+
 export async function refreshDueDatasetRecords(): Promise<{
   refreshed: DatasetRecord[];
   failed: Array<{ key: string; error: string }>;
@@ -322,9 +565,12 @@ export async function refreshDueDatasetRecords(): Promise<{
   const refreshed: DatasetRecord[] = [];
   const failed: Array<{ key: string; error: string }> = [];
   const skipped: string[] = [];
+  const done = new Set<string>();
 
-  for (const meta of listDatasets()) {
-    const rec = getDataset(meta.key);
+  const allKeys = listDatasets().map((m) => m.key);
+  for (const key of topoSortKeys(allKeys)) {
+    if (done.has(key)) continue;
+    const rec = getDataset(key);
     if (!rec) continue;
     const due =
       !rec.nextRefreshAt ||
@@ -335,8 +581,13 @@ export async function refreshDueDatasetRecords(): Promise<{
       continue;
     }
     try {
-      refreshed.push(await refreshDatasetRecord(rec.key));
+      const tree = await refreshDatasetRecord(rec.key);
+      for (const r of tree) {
+        done.add(r.key);
+        refreshed.push(r);
+      }
     } catch (err) {
+      done.add(rec.key);
       failed.push({
         key: rec.key,
         error: err instanceof Error ? err.message : String(err),

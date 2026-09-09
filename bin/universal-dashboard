@@ -5913,6 +5913,31 @@ var textNode = external_exports.object({
     ...textStyleProps
   })
 });
+var marqueeNode = external_exports.object({
+  type: external_exports.literal("Marquee"),
+  props: propsObject({
+    text: external_exports.string().optional(),
+    textField: external_exports.string().optional(),
+    dataset: datasetKey.optional(),
+    /**
+     * When `dataset` + `textField` resolve to multiple rows, join field values
+     * with this string (default `" · "`).
+     */
+    separator: external_exports.string().max(32).optional(),
+    size: sizeToken.optional(),
+    ...textStyleProps,
+    /** Scroll speed in px/s (10–200). Default 40. */
+    speed: external_exports.number().min(10).max(200).optional(),
+    /** `left` = classic ticker (default); `right` = reverse. */
+    direction: external_exports.enum(["left", "right"]).optional(),
+    /** Gap in px between loop copies (16–400). Default 48. */
+    gap: external_exports.number().int().min(16).max(400).optional(),
+    /** Pause while the pointer is over the band. Default true. */
+    pauseOnHover: external_exports.boolean().optional(),
+    /** Only animate when text is wider than the widget. Default false. */
+    onlyIfOverflow: external_exports.boolean().optional()
+  })
+});
 var markdownNode = external_exports.object({
   type: external_exports.literal("Markdown"),
   props: propsObject({ text: external_exports.string() })
@@ -6095,6 +6120,7 @@ var nodeBody = external_exports.discriminatedUnion("type", [
   dividerNode,
   titleNode,
   textNode,
+  marqueeNode,
   markdownNode,
   imageNode,
   badgeNode,
@@ -7409,6 +7435,7 @@ var RENDERED_WIDGET_TYPES = [
   "ScrollArea",
   "Title",
   "Text",
+  "Marquee",
   "Markdown",
   "Icon",
   "Badge",
@@ -7925,6 +7952,23 @@ function isPersistedDatasetKey(key) {
 function isEphemeralDatasetKey(key) {
   return key.startsWith("_screen.") || key.startsWith("_url.");
 }
+function isSingleDerivedSource(source) {
+  return "dataset" in source && typeof source.dataset === "string";
+}
+function isMultiDerivedSource(source) {
+  return "datasets" in source && Array.isArray(source.datasets);
+}
+function isDerivedSource(source) {
+  return isSingleDerivedSource(source) || isMultiDerivedSource(source);
+}
+function isHttpSource(source) {
+  return "url" in source && typeof source.url === "string";
+}
+function parentKeysOf(source) {
+  if (isMultiDerivedSource(source)) return source.datasets.slice();
+  if (isSingleDerivedSource(source)) return [source.dataset];
+  return [];
+}
 function assertPersistedKey(key) {
   if (!isPersistedDatasetKey(key)) {
     throw new Error(
@@ -7982,11 +8026,56 @@ function persistDataset(rec) {
   syncIndexEntry(rec);
   return rec;
 }
+function parseJsonPath(obj) {
+  return obj.jsonPath !== void 0 && obj.jsonPath !== null && String(obj.jsonPath).trim() ? String(obj.jsonPath).trim() : void 0;
+}
+var MAX_MULTI_PARENTS = 16;
 function parseSource(raw) {
   if (!raw || typeof raw !== "object") throw new Error("source is required");
   const obj = raw;
-  const url = String(obj.url || "").trim();
-  if (!url) throw new Error("source.url is required");
+  const hasUrl = obj.url !== void 0 && obj.url !== null && String(obj.url).trim() !== "";
+  const hasDataset = obj.dataset !== void 0 && obj.dataset !== null && String(obj.dataset).trim() !== "";
+  const hasDatasets = obj.datasets !== void 0 && obj.datasets !== null;
+  const modes = [hasUrl, hasDataset, hasDatasets].filter(Boolean).length;
+  if (modes > 1) {
+    throw new Error("source must have exactly one of url, dataset, or datasets");
+  }
+  if (modes === 0) {
+    throw new Error("source.url, source.dataset, or source.datasets is required");
+  }
+  const jsonPath = parseJsonPath(obj);
+  if (hasDatasets) {
+    if (jsonPath) {
+      throw new Error("source.jsonPath is not supported with source.datasets \u2014 slice in transform");
+    }
+    if (!Array.isArray(obj.datasets)) {
+      throw new Error("source.datasets must be an array of dataset keys");
+    }
+    if (obj.datasets.length < 2) {
+      throw new Error("source.datasets needs at least 2 keys (use source.dataset for a single parent)");
+    }
+    if (obj.datasets.length > MAX_MULTI_PARENTS) {
+      throw new Error(`source.datasets too many parents (max ${MAX_MULTI_PARENTS})`);
+    }
+    const parents = [];
+    const seen = /* @__PURE__ */ new Set();
+    for (const item of obj.datasets) {
+      const parentKey = String(item || "").trim().toLowerCase();
+      assertPersistedKey(parentKey);
+      if (seen.has(parentKey)) {
+        throw new Error(`source.datasets duplicate key: ${parentKey}`);
+      }
+      seen.add(parentKey);
+      parents.push(parentKey);
+    }
+    return { datasets: parents };
+  }
+  if (hasDataset) {
+    const parentKey = String(obj.dataset).trim().toLowerCase();
+    assertPersistedKey(parentKey);
+    return { dataset: parentKey, ...jsonPath ? { jsonPath } : {} };
+  }
+  const url = String(obj.url).trim();
   let parsed;
   try {
     parsed = new URL(url);
@@ -7999,13 +8088,86 @@ function parseSource(raw) {
   const headers = obj.headers && typeof obj.headers === "object" && !Array.isArray(obj.headers) ? Object.fromEntries(
     Object.entries(obj.headers).map(([k, v]) => [k, String(v)])
   ) : void 0;
-  const jsonPath = obj.jsonPath !== void 0 && obj.jsonPath !== null && String(obj.jsonPath).trim() ? String(obj.jsonPath).trim() : void 0;
-  return { url, headers, jsonPath };
+  return { url, ...headers ? { headers } : {}, ...jsonPath ? { jsonPath } : {} };
+}
+function assertAcyclicDerived(key, source) {
+  const roots = parentKeysOf(source);
+  if (roots.length === 0) return;
+  for (const p of roots) {
+    if (p === key) {
+      throw new Error(`Dataset "${key}" cannot derive from itself`);
+    }
+    if (!getDataset(p)) {
+      throw new Error(`Parent dataset not found: ${p}`);
+    }
+  }
+  const stack = roots.slice();
+  const visited = /* @__PURE__ */ new Set();
+  while (stack.length) {
+    const cur = stack.pop();
+    if (cur === key) {
+      throw new Error(`Dataset cycle detected involving "${key}"`);
+    }
+    if (visited.has(cur)) continue;
+    visited.add(cur);
+    const rec = getDataset(cur);
+    if (!rec) {
+      throw new Error(`Parent dataset not found: ${cur}`);
+    }
+    for (const p of parentKeysOf(rec.source)) {
+      stack.push(p);
+    }
+  }
+}
+function dependentsOf(parentKey) {
+  const out = [];
+  for (const meta of listDatasets()) {
+    const rec = getDataset(meta.key);
+    if (!rec || !isDerivedSource(rec.source)) continue;
+    if (parentKeysOf(rec.source).includes(parentKey)) out.push(rec.key);
+  }
+  return out.sort((a, b) => a.localeCompare(b));
+}
+function topoSortKeys(keys) {
+  const keySet = new Set(keys);
+  const indegree = /* @__PURE__ */ new Map();
+  const children = /* @__PURE__ */ new Map();
+  for (const k of keys) {
+    indegree.set(k, 0);
+    children.set(k, []);
+  }
+  for (const k of keys) {
+    const rec = getDataset(k);
+    if (!rec || !isDerivedSource(rec.source)) continue;
+    for (const p of parentKeysOf(rec.source)) {
+      if (!keySet.has(p)) continue;
+      children.get(p).push(k);
+      indegree.set(k, (indegree.get(k) || 0) + 1);
+    }
+  }
+  const queue = keys.filter((k) => (indegree.get(k) || 0) === 0).sort((a, b) => a.localeCompare(b));
+  const ordered = [];
+  while (queue.length) {
+    const k = queue.shift();
+    ordered.push(k);
+    const next = (children.get(k) || []).slice().sort((a, b) => a.localeCompare(b));
+    for (const c of next) {
+      const d = (indegree.get(c) || 0) - 1;
+      indegree.set(c, d);
+      if (d === 0) queue.push(c);
+    }
+    queue.sort((a, b) => a.localeCompare(b));
+  }
+  for (const k of keys) {
+    if (!ordered.includes(k)) ordered.push(k);
+  }
+  return ordered;
 }
 function upsertDataset(input) {
   const key = String(input.key || "").trim().toLowerCase();
   assertPersistedKey(key);
   const source = parseSource(input.source);
+  assertAcyclicDerived(key, source);
   const refreshIntervalSec = Math.max(MIN_INTERVAL, Math.floor(input.refreshIntervalSec ?? 600));
   const existing = getDataset(key);
   const now = nowIso();
@@ -8052,7 +8214,7 @@ function readPath(data, path) {
   }
   return cur;
 }
-async function fetchJson(source) {
+async function fetchHttpJson(source) {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
   try {
@@ -8077,6 +8239,39 @@ async function fetchJson(source) {
     clearTimeout(timer);
   }
 }
+function readParentPayload(parentKey) {
+  const parent = getDataset(parentKey);
+  if (!parent) {
+    throw new Error(`Parent dataset not found: ${parentKey}`);
+  }
+  if (parent.data === void 0 || parent.data === null) {
+    throw new Error(`Parent dataset "${parentKey}" has no data yet \u2014 refresh it first`);
+  }
+  return parent.data;
+}
+function resolveSingleDerivedData(source) {
+  const payload = readParentPayload(source.dataset);
+  const sliced = readPath(payload, source.jsonPath);
+  if (sliced === void 0) {
+    throw new Error(
+      `jsonPath "${source.jsonPath}" not found in parent dataset "${source.dataset}"`
+    );
+  }
+  return sliced;
+}
+function resolveMultiDerivedData(source) {
+  const out = {};
+  for (const parentKey of source.datasets) {
+    out[parentKey] = readParentPayload(parentKey);
+  }
+  return out;
+}
+async function resolveSourceData(source) {
+  if (isMultiDerivedSource(source)) return resolveMultiDerivedData(source);
+  if (isSingleDerivedSource(source)) return resolveSingleDerivedData(source);
+  if (isHttpSource(source)) return fetchHttpJson(source);
+  throw new Error("Invalid dataset source");
+}
 function nextRefreshIso(intervalSec, from = Date.now()) {
   return new Date(from + intervalSec * 1e3).toISOString();
 }
@@ -8098,13 +8293,16 @@ function summarizeDataset(rec) {
     data
   };
 }
-async function refreshDatasetRecord(key) {
+async function refreshOne(key) {
   assertPersistedKey(key);
   const rec = getDataset(key);
   if (!rec) throw new Error(`Dataset not found: ${key}`);
+  if (isDerivedSource(rec.source)) {
+    assertAcyclicDerived(key, rec.source);
+  }
   const now = nowIso();
   try {
-    let data = await fetchJson(rec.source);
+    let data = await resolveSourceData(rec.source);
     if (rec.transform) {
       data = await runTransform(rec.transform, data);
     }
@@ -8129,6 +8327,18 @@ async function refreshDatasetRecord(key) {
     throw new Error(`Refresh failed for ${key}: ${message}`);
   }
 }
+async function refreshDatasetRecord(key) {
+  const primary = await refreshOne(key);
+  const out = [primary];
+  for (const child of dependentsOf(key)) {
+    try {
+      const childTree = await refreshDatasetRecord(child);
+      out.push(...childTree);
+    } catch {
+    }
+  }
+  return out;
+}
 async function refreshDueDatasetRecords() {
   ensureDirs();
   if (readIndex().length === 0 && existsSync(datasetsDir())) {
@@ -8144,8 +8354,11 @@ async function refreshDueDatasetRecords() {
   const refreshed = [];
   const failed = [];
   const skipped = [];
-  for (const meta of listDatasets()) {
-    const rec = getDataset(meta.key);
+  const done = /* @__PURE__ */ new Set();
+  const allKeys = listDatasets().map((m) => m.key);
+  for (const key of topoSortKeys(allKeys)) {
+    if (done.has(key)) continue;
+    const rec = getDataset(key);
     if (!rec) continue;
     const due = !rec.nextRefreshAt || Number.isNaN(Date.parse(rec.nextRefreshAt)) || Date.parse(rec.nextRefreshAt) <= now;
     if (!due) {
@@ -8153,8 +8366,13 @@ async function refreshDueDatasetRecords() {
       continue;
     }
     try {
-      refreshed.push(await refreshDatasetRecord(rec.key));
+      const tree = await refreshDatasetRecord(rec.key);
+      for (const r of tree) {
+        done.add(r.key);
+        refreshed.push(r);
+      }
     } catch (err) {
+      done.add(rec.key);
       failed.push({
         key: rec.key,
         error: err instanceof Error ? err.message : String(err)
@@ -8547,9 +8765,11 @@ function syncDatasetIntoLiveScreen(key, data) {
   });
 }
 async function refreshDataset(key) {
-  const rec = await refreshDatasetRecord(key);
-  syncDatasetIntoLiveScreen(key, rec.data);
-  return rec;
+  const tree = await refreshDatasetRecord(key);
+  for (const rec of tree) {
+    syncDatasetIntoLiveScreen(rec.key, rec.data);
+  }
+  return tree[0];
 }
 async function refreshDueDatasets() {
   const result = await refreshDueDatasetRecords();
@@ -8700,7 +8920,7 @@ var tools = [
   },
   {
     name: "ud_screen_show",
-    description: "Show a widget on the live dashboard. Placement (top-level): column 1-based (1..grid.columns), index 0-based row, colspan. Omit column for horizontal-first auto-flow. Default grid is 3 columns (ud_screen_grid to change). For live data: bind props.dataset to a key from ud_datasets_upsert (no widget.data). HorizontalTiles: pass widget.children[] as the per-row template (Icon/Text/Stat/Stack\u2026). Creating a dashboard: pass top-level view:{slug,title?} (sibling of widget).",
+    description: "Show a widget on the live dashboard. Default replace:false = upsert by widget.id (other widgets kept). replace:true wipes the whole screen then shows only this widget \u2014 never use for style/prop updates. Placement (top-level): column 1-based (1..grid.columns), index 0-based row, colspan. Omit column for horizontal-first auto-flow. Default grid is 3 columns (ud_screen_grid to change). For live data: bind props.dataset to a key from ud_datasets_upsert (no widget.data). HorizontalTiles: pass widget.children[] as the per-row template (Icon/Text/Stat/Stack\u2026). Creating a dashboard: pass top-level view:{slug,title?} (sibling of widget).",
     inputSchema: {
       type: "object",
       properties: {
@@ -8720,7 +8940,10 @@ var tools = [
           },
           required: ["id", "type"]
         },
-        replace: { type: "boolean" },
+        replace: {
+          type: "boolean",
+          description: "false (default): add or update this widget.id only. true: clear the screen and show only this widget."
+        },
         column: {
           type: "integer",
           minimum: 1,
@@ -8821,24 +9044,40 @@ var tools = [
   },
   {
     name: "ud_datasets_upsert",
-    description: "Create/update a persisted dataset: HTTP GET JSON source + refreshIntervalSec + optional QuickJS transform body. Plugin refreshes automatically; agent does not poll.",
+    description: "Create/update a persisted dataset: HTTP GET, single parent (source.dataset), or multi-parent (source.datasets) + refreshIntervalSec + optional QuickJS transform. Derived sources re-read parent cache(s); cycles rejected. Refreshing a parent cascades to dependents. Plugin refreshes automatically; agent does not poll.",
     inputSchema: {
       type: "object",
       properties: {
         key: { type: "string", description: "Persisted slug e.g. orders-live (not _screen.*)" },
         source: {
           type: "object",
+          description: "Exactly one of: { url, headers?, jsonPath? } HTTP GET; { dataset, jsonPath? } one parent; { datasets: [key,\u2026] } two+ parents (transform gets { [key]: data }).",
           properties: {
-            url: { type: "string" },
+            url: {
+              type: "string",
+              description: "HTTP(S) JSON URL (mutually exclusive with dataset / datasets)"
+            },
+            dataset: {
+              type: "string",
+              description: "Single parent key \u2014 transform receives that payload (mutually exclusive with url / datasets)."
+            },
+            datasets: {
+              type: "array",
+              items: { type: "string" },
+              minItems: 2,
+              description: "Two or more parent keys \u2014 transform receives { [parentKey]: data }. No jsonPath; slice in transform."
+            },
             headers: { type: "object", additionalProperties: { type: "string" } },
-            jsonPath: { type: "string", description: "Optional dot path into JSON body" }
-          },
-          required: ["url"]
+            jsonPath: {
+              type: "string",
+              description: "Optional dot path into HTTP body or single-parent payload (not with datasets)"
+            }
+          }
         },
         refreshIntervalSec: { type: "integer", minimum: 60, description: "Default 600" },
         transform: {
           type: "string",
-          description: 'Optional QuickJS sync function body for (data) => \u2026 after GET+jsonPath. Must return JSON. No fetch/fs/async. Omit to keep existing; pass "" to clear.'
+          description: 'Optional QuickJS sync function body for (data) => \u2026 after resolve(+jsonPath). Multi-parent: data is { [key]: payload }. Must return JSON. No fetch/fs/async. Omit to keep existing; pass "" to clear.'
         }
       },
       required: ["key", "source"],
@@ -8862,7 +9101,7 @@ var tools = [
   },
   {
     name: "ud_datasets_refresh",
-    description: "Force-fetch one dataset now (after upsert). Verify payload before binding widgets.",
+    description: "Force-refresh one dataset now (after upsert). HTTP sources re-GET; derived sources re-read the parent cache. Cascades to dependents. Verify payload before binding widgets.",
     inputSchema: {
       type: "object",
       properties: { key: { type: "string" } },
@@ -8911,7 +9150,7 @@ async function callTool(name, args2) {
         const widget = widgetSpecSchema.parse(args2.widget);
         showOnScreen({
           widget,
-          replace: args2.replace !== false,
+          replace: args2.replace === true,
           column: typeof args2.column === "number" ? args2.column : void 0,
           index: typeof args2.index === "number" ? args2.index : void 0,
           colspan: typeof args2.colspan === "number" ? args2.colspan : void 0

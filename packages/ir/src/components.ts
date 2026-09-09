@@ -178,6 +178,33 @@ export const textNode = z.object({
   }),
 });
 
+/** Horizontal scrolling ticker / banner (seamless loop). */
+export const marqueeNode = z.object({
+  type: z.literal("Marquee"),
+  props: propsObject({
+    text: z.string().optional(),
+    textField: z.string().optional(),
+    dataset: datasetKey.optional(),
+    /**
+     * When `dataset` + `textField` resolve to multiple rows, join field values
+     * with this string (default `" · "`).
+     */
+    separator: z.string().max(32).optional(),
+    size: sizeToken.optional(),
+    ...textStyleProps,
+    /** Scroll speed in px/s (10–200). Default 40. */
+    speed: z.number().min(10).max(200).optional(),
+    /** `left` = classic ticker (default); `right` = reverse. */
+    direction: z.enum(["left", "right"]).optional(),
+    /** Gap in px between loop copies (16–400). Default 48. */
+    gap: z.number().int().min(16).max(400).optional(),
+    /** Pause while the pointer is over the band. Default true. */
+    pauseOnHover: z.boolean().optional(),
+    /** Only animate when text is wider than the widget. Default false. */
+    onlyIfOverflow: z.boolean().optional(),
+  }),
+});
+
 export const markdownNode = z.object({
   type: z.literal("Markdown"),
   props: propsObject({ text: z.string() }),
@@ -393,6 +420,7 @@ export const nodeBody = z.discriminatedUnion("type", [
   dividerNode,
   titleNode,
   textNode,
+  marqueeNode,
   markdownNode,
   imageNode,
   badgeNode,
