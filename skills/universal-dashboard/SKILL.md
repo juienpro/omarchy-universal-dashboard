@@ -105,6 +105,7 @@ Pass **top-level** `view: { slug, title? }` on `ud_screen_show` (sibling of `wid
 | Wider grid | `ud_screen_grid` `{ "columns": N }` then place with `column` / `colspan` |
 | Clear screen | `ud_screen_clear` (datasets remain) |
 | Load | `ud_views_list` → `ud_screen_load_view` |
+| Auto-cycle views | `ud_views_carousel` `{ enabled: true, intervalSec?, views?: [id…], transition?: "fade"|"slide"|"scale" }` — omit `views` (or `[]`) for all saved views; `{ enabled: false }` to stop. Panel must be open. |
 | Delete view | `ud_views_delete` — only if user asks |
 | Delete dataset | `ud_datasets_delete` — only if user asks |
 
@@ -260,7 +261,10 @@ Bar **UD** icon toggles the FloatingWindow.
 
 | Key | Action |
 |---|---|
-| `←` / `→` | Cycle saved views |
+| `←` / `→` or `n` / `p` | Cycle saved views |
+| `c` | Toggle auto-cycle (carousel) |
+| `Shift+C` | Cycle transition animation (fade → slide → scale) |
+| `+` / `-` | Adjust carousel delay (only while auto-cycle is on; toast shows current seconds) |
 | `V` | View list (↑↓ + Enter) |
 | `d` | Delete current / listed view — press `d` again to confirm, `Esc` to cancel |
 | `Esc` | Cancel delete confirm / close list / close window |

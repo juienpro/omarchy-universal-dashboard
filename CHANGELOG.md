@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-09-09
+
+### Added
+
+- View carousel: MCP tool `ud_views_carousel` (`enabled`, optional `views[]`, `intervalSec`, `transition`: fade / slide / scale) with state in `carousel.json`
+- Panel shortcuts: `n` / `p` cycle views; `c` toggles carousel; `Shift+C` cycles transition; `+` / `-` nudge delay while auto-cycle is on (toast shows current interval)
+- CLI helper `carousel` (`toggle` / `off` / `cycle-transition` / `interval ±N`)
+- Animated view transitions (fade / slide / scale) when switching saved views
+
 ## [0.1.0] - 2026-09-08
 
 ### Added

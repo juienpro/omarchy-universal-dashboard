@@ -11,6 +11,7 @@ mcp/dist
 .cache/
 *.log
 coverage/
+switch-install
 
 # Secrets & runtime junk
 .env

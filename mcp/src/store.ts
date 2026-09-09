@@ -28,6 +28,7 @@ import {
   upsertDataset,
 } from "./datasets.js";
 import {
+  carouselPath,
   ensureDirs,
   nowIso,
   screenPath,
@@ -36,6 +37,30 @@ import {
   viewsIndexPath,
   writeAtomic,
 } from "./paths.js";
+
+export const CAROUSEL_TRANSITIONS = ["fade", "slide", "scale"] as const;
+export type CarouselTransition = (typeof CAROUSEL_TRANSITIONS)[number];
+
+export type CarouselState = {
+  enabled: boolean;
+  /** null = cycle all saved views; otherwise ordered subset of view ids */
+  viewIds: string[] | null;
+  intervalSec: number;
+  transition: CarouselTransition;
+};
+
+const MIN_CAROUSEL_INTERVAL_SEC = 3;
+const MAX_CAROUSEL_INTERVAL_SEC = 600;
+const DEFAULT_CAROUSEL_INTERVAL_SEC = 10;
+
+export function emptyCarousel(): CarouselState {
+  return {
+    enabled: false,
+    viewIds: null,
+    intervalSec: DEFAULT_CAROUSEL_INTERVAL_SEC,
+    transition: "fade",
+  };
+}
 
 export type ScreenState = {
   definition: ViewIr | null;
@@ -66,7 +91,7 @@ export type WidgetSpec = {
   children?: WidgetSpec[];
 };
 
-export { stateDir, screenPath, viewsIndexPath };
+export { stateDir, screenPath, viewsIndexPath, carouselPath };
 
 function defaultLayout(): ScreenLayout {
   return normalizeScreenLayout({
@@ -537,6 +562,104 @@ export function deleteDataset(key: string): { deleted: string } {
     persistScreen({ ...state, inlineData });
   }
   return { deleted: key };
+}
+
+export function getCarousel(): CarouselState {
+  ensureDirs();
+  if (!existsSync(carouselPath())) return emptyCarousel();
+  try {
+    const raw = JSON.parse(readFileSync(carouselPath(), "utf8")) as Partial<CarouselState>;
+    return normalizeCarousel(raw);
+  } catch {
+    return emptyCarousel();
+  }
+}
+
+function normalizeCarousel(raw: Partial<CarouselState> | null | undefined): CarouselState {
+  const base = emptyCarousel();
+  if (!raw || typeof raw !== "object") return base;
+  const transition =
+    typeof raw.transition === "string" && (CAROUSEL_TRANSITIONS as readonly string[]).includes(raw.transition)
+      ? (raw.transition as CarouselTransition)
+      : base.transition;
+  let viewIds: string[] | null = null;
+  if (Array.isArray(raw.viewIds)) {
+    const ids = raw.viewIds.map((id) => String(id)).filter(Boolean);
+    viewIds = ids.length ? ids : null;
+  }
+  const intervalSec =
+    typeof raw.intervalSec === "number" && Number.isFinite(raw.intervalSec)
+      ? Math.min(MAX_CAROUSEL_INTERVAL_SEC, Math.max(MIN_CAROUSEL_INTERVAL_SEC, Math.floor(raw.intervalSec)))
+      : base.intervalSec;
+  return {
+    enabled: !!raw.enabled,
+    viewIds,
+    intervalSec,
+    transition,
+  };
+}
+
+export function setCarousel(input: {
+  enabled: boolean;
+  views?: string[] | null;
+  intervalSec?: number;
+  transition?: CarouselTransition;
+}): CarouselState {
+  const current = getCarousel();
+  const index = readViewsIndex();
+  const known = new Set(index.map((v) => v.id));
+
+  let viewIds: string[] | null = current.viewIds;
+  if (input.views !== undefined) {
+    if (input.views === null || input.views.length === 0) {
+      viewIds = null;
+    } else {
+      const missing = input.views.filter((id) => !known.has(id));
+      if (missing.length) throw new Error(`Unknown view id(s): ${missing.join(", ")}`);
+      viewIds = [...new Set(input.views.map(String))];
+    }
+  }
+
+  if (input.enabled) {
+    const pool = viewIds ? viewIds : index.map((v) => v.id);
+    if (pool.length < 2) {
+      throw new Error("Carousel needs at least 2 saved views (pass views: [id,…] or save more views)");
+    }
+  }
+
+  const next = normalizeCarousel({
+    enabled: input.enabled,
+    viewIds,
+    intervalSec: input.intervalSec ?? current.intervalSec,
+    transition: input.transition ?? current.transition,
+  });
+  writeAtomic(carouselPath(), JSON.stringify(next, null, 2) + "\n");
+  return next;
+}
+
+/** Flip enabled; keeps viewIds / interval / transition. Throws if enabling with fewer than 2 views. */
+export function toggleCarousel(): CarouselState {
+  const current = getCarousel();
+  return setCarousel({ enabled: !current.enabled });
+}
+
+/** Cycle fade → slide → scale → fade (works while off; updates preference). */
+export function cycleCarouselTransition(): CarouselState {
+  const current = getCarousel();
+  const idx = CAROUSEL_TRANSITIONS.indexOf(current.transition);
+  const next = CAROUSEL_TRANSITIONS[(idx + 1) % CAROUSEL_TRANSITIONS.length]!;
+  return setCarousel({ enabled: current.enabled, transition: next });
+}
+
+/** Adjust interval by delta seconds (clamped 3–600). */
+export function bumpCarouselInterval(deltaSec: number): CarouselState {
+  const current = getCarousel();
+  const delta = Math.trunc(deltaSec);
+  if (!delta) return current;
+  return setCarousel({
+    enabled: current.enabled,
+    intervalSec: current.intervalSec + delta,
+  });
 }
 
 export { listDatasets, getDataset, upsertDataset, summarizeDataset };

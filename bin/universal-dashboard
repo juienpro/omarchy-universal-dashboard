@@ -7739,6 +7739,9 @@ function screenPath() {
 function viewsIndexPath() {
   return join(stateDir(), "views.json");
 }
+function carouselPath() {
+  return join(stateDir(), "carousel.json");
+}
 function viewFilePath(id) {
   return join(stateDir(), "views", `${id}.json`);
 }
@@ -8173,6 +8176,18 @@ function cacheForKeys(keys) {
 }
 
 // src/store.ts
+var CAROUSEL_TRANSITIONS = ["fade", "slide", "scale"];
+var MIN_CAROUSEL_INTERVAL_SEC = 3;
+var MAX_CAROUSEL_INTERVAL_SEC = 600;
+var DEFAULT_CAROUSEL_INTERVAL_SEC = 10;
+function emptyCarousel() {
+  return {
+    enabled: false,
+    viewIds: null,
+    intervalSec: DEFAULT_CAROUSEL_INTERVAL_SEC,
+    transition: "fade"
+  };
+}
 function defaultLayout() {
   return normalizeScreenLayout({
     grid: normalizeGrid(),
@@ -8561,6 +8576,81 @@ function deleteDataset(key) {
   }
   return { deleted: key };
 }
+function getCarousel() {
+  ensureDirs();
+  if (!existsSync2(carouselPath())) return emptyCarousel();
+  try {
+    const raw = JSON.parse(readFileSync3(carouselPath(), "utf8"));
+    return normalizeCarousel(raw);
+  } catch {
+    return emptyCarousel();
+  }
+}
+function normalizeCarousel(raw) {
+  const base = emptyCarousel();
+  if (!raw || typeof raw !== "object") return base;
+  const transition = typeof raw.transition === "string" && CAROUSEL_TRANSITIONS.includes(raw.transition) ? raw.transition : base.transition;
+  let viewIds = null;
+  if (Array.isArray(raw.viewIds)) {
+    const ids = raw.viewIds.map((id) => String(id)).filter(Boolean);
+    viewIds = ids.length ? ids : null;
+  }
+  const intervalSec = typeof raw.intervalSec === "number" && Number.isFinite(raw.intervalSec) ? Math.min(MAX_CAROUSEL_INTERVAL_SEC, Math.max(MIN_CAROUSEL_INTERVAL_SEC, Math.floor(raw.intervalSec))) : base.intervalSec;
+  return {
+    enabled: !!raw.enabled,
+    viewIds,
+    intervalSec,
+    transition
+  };
+}
+function setCarousel(input) {
+  const current = getCarousel();
+  const index = readViewsIndex();
+  const known = new Set(index.map((v) => v.id));
+  let viewIds = current.viewIds;
+  if (input.views !== void 0) {
+    if (input.views === null || input.views.length === 0) {
+      viewIds = null;
+    } else {
+      const missing = input.views.filter((id) => !known.has(id));
+      if (missing.length) throw new Error(`Unknown view id(s): ${missing.join(", ")}`);
+      viewIds = [...new Set(input.views.map(String))];
+    }
+  }
+  if (input.enabled) {
+    const pool = viewIds ? viewIds : index.map((v) => v.id);
+    if (pool.length < 2) {
+      throw new Error("Carousel needs at least 2 saved views (pass views: [id,\u2026] or save more views)");
+    }
+  }
+  const next = normalizeCarousel({
+    enabled: input.enabled,
+    viewIds,
+    intervalSec: input.intervalSec ?? current.intervalSec,
+    transition: input.transition ?? current.transition
+  });
+  writeAtomic(carouselPath(), JSON.stringify(next, null, 2) + "\n");
+  return next;
+}
+function toggleCarousel() {
+  const current = getCarousel();
+  return setCarousel({ enabled: !current.enabled });
+}
+function cycleCarouselTransition() {
+  const current = getCarousel();
+  const idx = CAROUSEL_TRANSITIONS.indexOf(current.transition);
+  const next = CAROUSEL_TRANSITIONS[(idx + 1) % CAROUSEL_TRANSITIONS.length];
+  return setCarousel({ enabled: current.enabled, transition: next });
+}
+function bumpCarouselInterval(deltaSec) {
+  const current = getCarousel();
+  const delta = Math.trunc(deltaSec);
+  if (!delta) return current;
+  return setCarousel({
+    enabled: current.enabled,
+    intervalSec: current.intervalSec + delta
+  });
+}
 
 // src/mcp.ts
 var PROTOCOL = "2025-03-26";
@@ -8703,6 +8793,33 @@ var tools = [
     }
   },
   {
+    name: "ud_views_carousel",
+    description: "Enable/disable automatic cycling between saved views. Omit views (or pass []) to cycle all saved views; pass view ids to restrict the pool (order preserved). intervalSec default 10 (min 3). transition: fade | slide | scale. Call with enabled:false to stop. Panel must be open to advance.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        enabled: { type: "boolean", description: "true to start / update autoplay; false to stop" },
+        views: {
+          type: "array",
+          items: { type: "string" },
+          description: "Optional view ids to cycle (omit or [] = all saved views)"
+        },
+        intervalSec: {
+          type: "integer",
+          minimum: 3,
+          description: "Seconds between switches (default 10, min 3)"
+        },
+        transition: {
+          type: "string",
+          enum: [...CAROUSEL_TRANSITIONS],
+          description: "View transition animation (default fade)"
+        }
+      },
+      required: ["enabled"],
+      additionalProperties: false
+    }
+  },
+  {
     name: "ud_datasets_upsert",
     description: "Create/update a persisted dataset: HTTP GET JSON source + refreshIntervalSec + optional QuickJS transform body. Plugin refreshes automatically; agent does not poll.",
     inputSchema: {
@@ -8819,6 +8936,23 @@ async function callTool(name, args2) {
       case "ud_views_delete": {
         const id = external_exports.string().min(1).parse(args2.id);
         return text(deleteView(id));
+      }
+      case "ud_views_carousel": {
+        const enabled = external_exports.boolean().parse(args2.enabled);
+        const intervalSec = args2.intervalSec !== void 0 ? external_exports.number().int().min(3).parse(args2.intervalSec) : void 0;
+        const transition = args2.transition !== void 0 ? external_exports.enum(["fade", "slide", "scale"]).parse(args2.transition) : void 0;
+        let views = void 0;
+        if (args2.views !== void 0) {
+          views = external_exports.array(external_exports.string().min(1)).parse(args2.views);
+        }
+        return text(
+          setCarousel({
+            enabled,
+            views,
+            intervalSec,
+            transition
+          })
+        );
       }
       case "ud_datasets_upsert": {
         const key = external_exports.string().min(1).parse(args2.key);
@@ -8964,6 +9098,32 @@ async function main() {
     process.stdout.write(JSON.stringify({ datasets: listDatasets() }, null, 2) + "\n");
     return;
   }
+  if (cmd === "carousel") {
+    const sub = args[1];
+    if (sub === "off") {
+      process.stdout.write(JSON.stringify(setCarousel({ enabled: false }), null, 2) + "\n");
+      return;
+    }
+    if (sub === "toggle") {
+      process.stdout.write(JSON.stringify(toggleCarousel(), null, 2) + "\n");
+      return;
+    }
+    if (sub === "cycle-transition") {
+      process.stdout.write(JSON.stringify(cycleCarouselTransition(), null, 2) + "\n");
+      return;
+    }
+    if (sub === "interval") {
+      const raw = args[2];
+      if (!raw || !/^[-+]?\d+$/.test(raw)) {
+        process.stderr.write("usage: universal-dashboard carousel interval <+N|-N>\n");
+        process.exit(2);
+      }
+      process.stdout.write(JSON.stringify(bumpCarouselInterval(parseInt(raw, 10)), null, 2) + "\n");
+      return;
+    }
+    process.stdout.write(JSON.stringify(getCarousel(), null, 2) + "\n");
+    return;
+  }
   if (cmd === "load-view") {
     const id = args[1];
     if (!id) {
@@ -9011,7 +9171,8 @@ async function main() {
           version: "0.1.0",
           screen: summarizeScreen(getScreen()),
           views: listViews(),
-          datasets: listDatasets()
+          datasets: listDatasets(),
+          carousel: getCarousel()
         },
         null,
         2
@@ -9022,7 +9183,7 @@ async function main() {
   process.stderr.write(`Unknown command: ${cmd}
 `);
   process.stderr.write(
-    "usage: universal-dashboard <serve|status|views|datasets|load-view|delete-view|refresh|refresh-due|doctor>\n"
+    "usage: universal-dashboard <serve|status|views|datasets|carousel|load-view|delete-view|refresh|refresh-due|doctor>\n"
   );
   process.exit(2);
 }

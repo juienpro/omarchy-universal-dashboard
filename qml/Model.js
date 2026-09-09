@@ -12,6 +12,46 @@ function viewsIndexPath(home) {
   return stateDir(home) + "/views.json"
 }
 
+function carouselPath(home) {
+  return stateDir(home) + "/carousel.json"
+}
+
+function emptyCarousel() {
+  return {
+    enabled: false,
+    viewIds: null,
+    intervalSec: 10,
+    transition: "fade"
+  }
+}
+
+function parseCarousel(raw) {
+  try {
+    var data = JSON.parse(String(raw || ""))
+    if (!data || typeof data !== "object") return emptyCarousel()
+    var transition = data.transition === "slide" || data.transition === "scale" ? data.transition : "fade"
+    var viewIds = null
+    if (Array.isArray(data.viewIds) && data.viewIds.length) {
+      viewIds = []
+      for (var i = 0; i < data.viewIds.length; i++) {
+        if (data.viewIds[i]) viewIds.push(String(data.viewIds[i]))
+      }
+      if (!viewIds.length) viewIds = null
+    }
+    var intervalSec = parseInt(data.intervalSec, 10)
+    if (!intervalSec || intervalSec < 3) intervalSec = 10
+    if (intervalSec > 600) intervalSec = 600
+    return {
+      enabled: !!data.enabled,
+      viewIds: viewIds,
+      intervalSec: intervalSec,
+      transition: transition
+    }
+  } catch (e) {
+    return emptyCarousel()
+  }
+}
+
 function emptyScreen() {
   return {
     definition: null,
@@ -88,6 +128,27 @@ function nextViewId(views, activeViewId, delta) {
   if (idx < 0) idx = delta > 0 ? -1 : 0
   var next = (idx + delta + views.length) % views.length
   return views[next].id
+}
+
+/** Ordered subset of views for carousel (missing ids skipped). Empty viewIds → all views. */
+function carouselPool(views, viewIds) {
+  if (!Array.isArray(views) || views.length === 0) return []
+  if (!viewIds || !viewIds.length) return views
+  var out = []
+  for (var i = 0; i < viewIds.length; i++) {
+    var id = String(viewIds[i])
+    for (var j = 0; j < views.length; j++) {
+      if (views[j].id === id) {
+        out.push(views[j])
+        break
+      }
+    }
+  }
+  return out
+}
+
+function nextCarouselViewId(views, viewIds, activeViewId, delta) {
+  return nextViewId(carouselPool(views, viewIds), activeViewId, delta || 1)
 }
 
 function datasetOf(screen, key) {

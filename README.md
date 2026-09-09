@@ -10,7 +10,8 @@ You describe what you want. The agent lays it out. Data refreshes on its own. Yo
 - **Agent-built layouts** — create and update views from your coding harness
 - **Live data** — define a source once; the panel keeps it fresh
 - **Custom refresh per data source** — each live feed has its own cache and refresh interval
-- **Saved views** — switch between dashboards with the keyboard
+- **Saved views** — switch between dashboards with the keyboard (`←`/`→` or `n`/`p`)
+- **View carousel** — auto-cycle saved views on a timer (`c`, or MCP `ud_views_carousel`); `Shift+C` cycles transition (fade / slide / scale); `+` / `-` adjust delay while auto-cycle is on
 - **Native Omarchy UX** — bar icon, shortcuts, and your theme
 
 ## Requirements
@@ -64,9 +65,24 @@ Click the dashboard icon on the bar, or:
 omarchy-shell juienpro.universal-dashboard toggle
 ```
 
+### Global shortcut (optional)
+
+Add a Hyprland binding in `~/.config/hypr/bindings.lua`:
+
+```lua
+o.bind("SUPER + CTRL + U", "Universal Dashboard", "omarchy-shell juienpro.universal-dashboard toggle")
+```
+
+Omarchy reloads Hyprland on save. Suggested chord: **SUPER + CTRL + U** (same family as Audio / Bluetooth / Display).
+
+### Panel shortcuts
+
 | Key | Action |
 |---|---|
-| `←` / `→` | Cycle saved views |
+| `←` / `→` or `n` / `p` | Cycle saved views |
+| `c` | Toggle auto-cycle (carousel) |
+| `Shift+C` | Cycle transition animation (fade → slide → scale) |
+| `+` / `-` | Adjust carousel delay (only while auto-cycle is on; toast shows current seconds) |
 | `V` | View list (↑↓ + Enter) |
 | `d` | Delete view (press again to confirm) |
 | `Esc` | Cancel / close list / close window |
@@ -94,13 +110,14 @@ The agent builds views and wires widgets to datasets. The plugin refreshes due d
 | `ud_screen_load_view` | Load a saved view |
 | `ud_views_list` | List saved views |
 | `ud_views_delete` | Delete a view |
+| `ud_views_carousel` | Toggle auto-cycle of views (`enabled`, optional `views[]`, `intervalSec`, `transition`) |
 | `ud_datasets_upsert` | Create/update a dataset source |
 | `ud_datasets_get` | Read one dataset |
 | `ud_datasets_list` | List datasets |
 | `ud_datasets_refresh` | Force-refresh one dataset |
 | `ud_datasets_delete` | Delete a dataset |
 
-CLI helpers (same binary): `status`, `views`, `datasets`, `load-view`, `delete-view`, `refresh`, `refresh-due`, `doctor`.
+CLI helpers (same binary): `status`, `views`, `datasets`, `carousel` (`toggle` / `off` / `cycle-transition` / `interval ±N`), `load-view`, `delete-view`, `refresh`, `refresh-due`, `doctor`.
 
 ## State
 
@@ -109,6 +126,7 @@ CLI helpers (same binary): `status`, `views`, `datasets`, `load-view`, `delete-v
 | `~/.local/state/universal-dashboard/screen.json` | Live screen |
 | `~/.local/state/universal-dashboard/views.json` | View index |
 | `~/.local/state/universal-dashboard/views/<id>.json` | Saved view bodies |
+| `~/.local/state/universal-dashboard/carousel.json` | Auto-cycle on/off, view pool, interval, transition |
 | `~/.local/state/universal-dashboard/datasets.json` | Dataset index |
 | `~/.local/state/universal-dashboard/datasets/<key>.json` | Source, schedule, cached payload |
 

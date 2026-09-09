@@ -18,6 +18,10 @@ export function viewsIndexPath(): string {
   return join(stateDir(), "views.json");
 }
 
+export function carouselPath(): string {
+  return join(stateDir(), "carousel.json");
+}
+
 export function viewFilePath(id: string): string {
   return join(stateDir(), "views", `${id}.json`);
 }

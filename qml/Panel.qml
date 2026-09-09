@@ -19,10 +19,23 @@ Item {
   readonly property string home: Quickshell.env("HOME")
   property var screen: Model.emptyScreen()
   property var views: []
+  property var carousel: Model.emptyCarousel()
   property bool listOpen: false
   property int listCursor: 0
   /** Non-empty while waiting for a second `d` to confirm deletion. */
   property string deleteConfirmId: ""
+
+  // View transition state (fade / slide / scale around load-view).
+  property real dashOpacity: 1
+  property real dashSlide: 0
+  property real dashScale: 1
+  property int transitionDir: 1
+  property string activeTransition: "fade"
+  property bool viewTransitioning: false
+  property string pendingViewId: ""
+  property string carouselFeedback: "" // "interval" | "transition" | ""
+  property string toastText: ""
+  property real toastOpacity: 0
 
   readonly property bool hasContent: Model.hasContent(screen)
   readonly property string titleText: Model.screenTitle(screen) || "Universal Dashboard"
@@ -43,8 +56,12 @@ Item {
   readonly property string statusText: {
     if (deleteConfirmId)
       return "Delete « " + deleteConfirmTitle + " »? d again · Esc cancel"
-    if (hasContent)
-      return screen.activeViewId ? (activeViewTitle || "Saved view") : "Live"
+    if (hasContent) {
+      var base = screen.activeViewId ? (activeViewTitle || "Saved view") : "Live"
+      if (carousel.enabled)
+        return base + " · auto " + carousel.intervalSec + "s · " + (carousel.transition || "fade")
+      return base
+    }
     return views.length ? (views.length + " views") : "Idle"
   }
 
@@ -86,6 +103,7 @@ Item {
   function openFromHotkey() {
     screenFile.reload()
     viewsFile.reload()
+    carouselFile.reload()
     runRefreshDue()
     wantOpen = true
 
@@ -127,21 +145,89 @@ Item {
   function cycleView(delta) {
     deleteConfirmId = ""
     var id = Model.nextViewId(views, screen.activeViewId, delta)
-    if (id) loadView(id)
+    if (id) requestLoadView(id, delta)
+  }
+
+  function advanceCarousel() {
+    if (!carousel.enabled || viewTransitioning || loadViewProc.running || listOpen) return
+    var id = Model.nextCarouselViewId(views, carousel.viewIds, screen.activeViewId, 1)
+    if (id) requestLoadView(id, 1)
+  }
+
+  function requestLoadView(viewId, dir) {
+    if (!viewId || loadViewProc.running || viewTransitioning) return
+    if (String(viewId) === String(screen.activeViewId || "")) return
+    deleteConfirmId = ""
+    transitionDir = dir === undefined || dir === 0 ? 1 : (dir > 0 ? 1 : -1)
+    activeTransition = carousel.transition || "fade"
+    pendingViewId = String(viewId)
+    if (!hasContent) {
+      viewTransitioning = true
+      dashOpacity = 0
+      dashSlide = 0
+      dashScale = 1
+      commitPendingLoad()
+      return
+    }
+    beginExitTransition()
+  }
+
+  function beginExitTransition() {
+    viewTransitioning = true
+    enterAnim.stop()
+    exitOpacity.to = 0
+    exitSlide.to = activeTransition === "slide" ? -transitionDir * 48 : 0
+    exitScale.to = activeTransition === "scale" ? 0.96 : 1
+    exitAnim.start()
+  }
+
+  function commitPendingLoad() {
+    if (!pendingViewId) {
+      viewTransitioning = false
+      resetDashTransform()
+      return
+    }
+    loadViewProc.command = [cliPath, "load-view", pendingViewId]
+    loadViewProc.running = true
+  }
+
+  function beginEnterTransition() {
+    if (activeTransition === "slide") {
+      dashOpacity = 1
+      dashSlide = transitionDir * 48
+      dashScale = 1
+    } else if (activeTransition === "scale") {
+      dashOpacity = 0
+      dashSlide = 0
+      dashScale = 0.96
+    } else {
+      dashOpacity = 0
+      dashSlide = 0
+      dashScale = 1
+    }
+    enterOpacity.to = 1
+    enterSlide.to = 0
+    enterScale.to = 1
+    enterAnim.start()
+  }
+
+  function resetDashTransform() {
+    dashOpacity = 1
+    dashSlide = 0
+    dashScale = 1
   }
 
   function loadView(viewId) {
-    if (!viewId || loadViewProc.running) return
-    deleteConfirmId = ""
-    loadViewProc.command = [cliPath, "load-view", String(viewId)]
-    loadViewProc.running = true
+    requestLoadView(viewId, 1)
   }
 
   function selectListView() {
     if (!views.length) return
     var idx = Math.max(0, Math.min(listCursor, views.length - 1))
-    loadView(views[idx].id)
+    var cur = Model.viewIndex(views, screen.activeViewId)
+    var dir = cur >= 0 && idx < cur ? -1 : 1
     listOpen = false
+    requestLoadView(views[idx].id, dir)
   }
 
   function viewIdForDelete() {
@@ -169,6 +255,33 @@ Item {
     deleteConfirmId = ""
   }
 
+  function toggleCarousel() {
+    runCarouselCmd(["toggle"], "")
+  }
+
+  function cycleCarouselTransition() {
+    runCarouselCmd(["cycle-transition"], "transition")
+  }
+
+  function bumpCarouselInterval(delta) {
+    if (!carousel.enabled) return
+    runCarouselCmd(["interval", String(delta)], "interval")
+  }
+
+  function runCarouselCmd(args, feedback) {
+    if (carouselCmdProc.running) return
+    deleteConfirmId = ""
+    carouselFeedback = feedback || ""
+    carouselCmdProc.command = [cliPath, "carousel"].concat(args)
+    carouselCmdProc.running = true
+  }
+
+  function showToast(msg) {
+    toastText = String(msg || "")
+    if (!toastText) return
+    toastAnim.restart()
+  }
+
   function setting(name, fallback) {
     var value = settings ? settings[name] : undefined
     return value === undefined || value === null ? fallback : value
@@ -179,6 +292,88 @@ Item {
     if (raw.indexOf("file://") === 0) raw = raw.substring(7)
     if (raw.indexOf("localhost/") === 0) raw = raw.substring(9)
     try { return decodeURIComponent(raw) } catch (e) { return raw }
+  }
+
+  SequentialAnimation {
+    id: toastAnim
+    NumberAnimation {
+      target: root
+      property: "toastOpacity"
+      to: 1
+      duration: 120
+      easing.type: Easing.OutCubic
+    }
+    PauseAnimation { duration: 1100 }
+    NumberAnimation {
+      target: root
+      property: "toastOpacity"
+      to: 0
+      duration: 280
+      easing.type: Easing.InCubic
+    }
+    ScriptAction { script: root.toastText = "" }
+  }
+
+  SequentialAnimation {
+    id: exitAnim
+    ParallelAnimation {
+      NumberAnimation {
+        id: exitOpacity
+        target: root
+        property: "dashOpacity"
+        duration: 160
+        easing.type: Easing.InCubic
+      }
+      NumberAnimation {
+        id: exitSlide
+        target: root
+        property: "dashSlide"
+        duration: 160
+        easing.type: Easing.InCubic
+      }
+      NumberAnimation {
+        id: exitScale
+        target: root
+        property: "dashScale"
+        duration: 160
+        easing.type: Easing.InCubic
+      }
+    }
+    ScriptAction { script: root.commitPendingLoad() }
+  }
+
+  SequentialAnimation {
+    id: enterAnim
+    ParallelAnimation {
+      NumberAnimation {
+        id: enterOpacity
+        target: root
+        property: "dashOpacity"
+        duration: 200
+        easing.type: Easing.OutCubic
+      }
+      NumberAnimation {
+        id: enterSlide
+        target: root
+        property: "dashSlide"
+        duration: 200
+        easing.type: Easing.OutCubic
+      }
+      NumberAnimation {
+        id: enterScale
+        target: root
+        property: "dashScale"
+        duration: 200
+        easing.type: Easing.OutCubic
+      }
+    }
+    ScriptAction {
+      script: {
+        root.viewTransitioning = false
+        root.pendingViewId = ""
+        root.resetDashTransform()
+      }
+    }
   }
 
   FileView {
@@ -201,6 +396,16 @@ Item {
     onLoadFailed: root.views = []
   }
 
+  FileView {
+    id: carouselFile
+    path: Model.carouselPath(root.home)
+    watchChanges: true
+    printErrors: false
+    onLoaded: root.carousel = Model.parseCarousel(text())
+    onFileChanged: reload()
+    onLoadFailed: root.carousel = Model.emptyCarousel()
+  }
+
   Process {
     id: loadViewProc
     stdout: StdioCollector {}
@@ -208,6 +413,10 @@ Item {
     onExited: {
       screenFile.reload()
       viewsFile.reload()
+      if (root.viewTransitioning)
+        root.beginEnterTransition()
+      else
+        root.resetDashTransform()
     }
   }
 
@@ -232,6 +441,37 @@ Item {
     }
   }
 
+  Process {
+    id: carouselCmdProc
+    stdout: StdioCollector {
+      id: carouselOut
+      waitForEnd: true
+    }
+    stderr: StdioCollector {}
+    onExited: function(exitCode) {
+      if (exitCode === 0) {
+        try {
+          var raw = carouselOut.text || ""
+          if (raw.trim())
+            root.carousel = Model.parseCarousel(raw)
+          else
+            carouselFile.reload()
+        } catch (e) {
+          carouselFile.reload()
+        }
+      } else {
+        carouselFile.reload()
+      }
+      var kind = root.carouselFeedback
+      root.carouselFeedback = ""
+      if (exitCode !== 0) return
+      if (kind === "interval")
+        root.showToast(root.carousel.intervalSec + "s")
+      else if (kind === "transition")
+        root.showToast(root.carousel.transition || "fade")
+    }
+  }
+
   // Poll file state for external MCP writes
   Timer {
     interval: 2000
@@ -240,6 +480,7 @@ Item {
     onTriggered: {
       screenFile.reload()
       viewsFile.reload()
+      carouselFile.reload()
     }
   }
 
@@ -249,6 +490,14 @@ Item {
     running: true
     repeat: true
     onTriggered: root.runRefreshDue()
+  }
+
+  // Auto-cycle saved views when MCP carousel is enabled (panel open).
+  Timer {
+    interval: Math.max(3, root.carousel.intervalSec || 10) * 1000
+    running: root.carousel.enabled && root.wantOpen && !root.listOpen && !root.deleteConfirmId
+    repeat: true
+    onTriggered: root.advanceCarousel()
   }
 
   // FloatingWindow is loaded on demand and destroyed after compositor kill
@@ -295,6 +544,7 @@ Item {
         if (visible) {
           screenFile.reload()
           viewsFile.reload()
+          carouselFile.reload()
           root.runRefreshDue()
           Qt.callLater(root.focusDashWindow)
         } else {
@@ -339,6 +589,30 @@ Item {
             onTextKey: function(t) {
               if (t === "d" || t === "D") {
                 root.requestDelete()
+                return
+              }
+              if (t === "n" || t === "N") {
+                if (!root.listOpen) root.cycleView(1)
+                return
+              }
+              if (t === "p" || t === "P") {
+                if (!root.listOpen) root.cycleView(-1)
+                return
+              }
+              if (t === "c") {
+                if (!root.listOpen) root.toggleCarousel()
+                return
+              }
+              if (t === "C") {
+                if (!root.listOpen) root.cycleCarouselTransition()
+                return
+              }
+              if (t === "+" || t === "=") {
+                if (!root.listOpen) root.bumpCarouselInterval(1)
+                return
+              }
+              if (t === "-" || t === "_") {
+                if (!root.listOpen) root.bumpCarouselInterval(-1)
                 return
               }
               if (t === "v" || t === "V") {
@@ -401,7 +675,9 @@ Item {
                       textFormat: Text.PlainText
                       text: root.deleteConfirmId
                         ? "d confirm · Esc cancel"
-                        : "← → views · V list · d delete · Esc"
+                        : (root.carousel.enabled
+                          ? "←→ / n p · c auto · Shift+C fx · +/- delay · V · d · Esc"
+                          : "←→ / n p · c auto · Shift+C fx · V list · d delete · Esc")
                       color: root.muted
                       font.family: root.fontFamily
                       font.pixelSize: Style.font.body
@@ -466,53 +742,91 @@ Item {
                 Item {
                   visible: !root.listOpen
                   width: parent.width
-                  height: dashLoader.item ? dashLoader.item.implicitHeight : emptyHint.implicitHeight
+                  height: dashStage.height
+                  clip: true
 
-                  Text {
-                    id: emptyHint
-                    visible: !root.hasContent
+                  Item {
+                    id: dashStage
                     width: parent.width
-                    wrapMode: Text.WordWrap
-                    textFormat: Text.PlainText
-                    text: "Connect an agent with MCP, then ask it to show something.\n\n"
-                      + "Claude:\n  claude mcp add universal-dashboard -- " + root.cliPath + " serve\n\n"
-                      + "Codex:\n  codex mcp add universal-dashboard -- " + root.cliPath + " serve"
-                    color: root.muted
-                    font.family: root.fontFamily
-                    font.pixelSize: Style.font.body
-                    lineHeight: 1.35
-                  }
+                    height: dashLoader.item ? dashLoader.item.implicitHeight : emptyHint.implicitHeight
+                    opacity: root.dashOpacity
+                    x: root.dashSlide
+                    scale: root.dashScale
+                    transformOrigin: Item.Center
 
-                  Loader {
-                    id: dashLoader
-                    anchors.left: parent.left
-                    anchors.right: parent.right
-                    height: item ? Math.max(item.implicitHeight, 1) : 0
-                    active: root.hasContent && !root.listOpen
-                    source: Qt.resolvedUrl("IrView.qml")
-                    onLoaded: syncDash()
-                    onWidthChanged: syncDash()
-
-                    function syncDash() {
-                      if (!item) return
-                      item.width = width
-                      item.screen = root.screen
-                      item.bar = root.bar
+                    Text {
+                      id: emptyHint
+                      visible: !root.hasContent
+                      width: parent.width
+                      wrapMode: Text.WordWrap
+                      textFormat: Text.PlainText
+                      text: "Connect an agent with MCP, then ask it to show something.\n\n"
+                        + "Claude:\n  claude mcp add universal-dashboard -- " + root.cliPath + " serve\n\n"
+                        + "Codex:\n  codex mcp add universal-dashboard -- " + root.cliPath + " serve"
+                      color: root.muted
+                      font.family: root.fontFamily
+                      font.pixelSize: Style.font.body
+                      lineHeight: 1.35
                     }
-                  }
 
-                  Connections {
-                    target: root
-                    function onScreenChanged() {
-                      if (dashLoader.item) {
-                        dashLoader.item.screen = root.screen
-                        dashLoader.syncDash()
+                    Loader {
+                      id: dashLoader
+                      anchors.left: parent.left
+                      anchors.right: parent.right
+                      height: item ? Math.max(item.implicitHeight, 1) : 0
+                      active: root.hasContent && !root.listOpen
+                      source: Qt.resolvedUrl("IrView.qml")
+                      onLoaded: syncDash()
+                      onWidthChanged: syncDash()
+
+                      function syncDash() {
+                        if (!item) return
+                        item.width = width
+                        item.screen = root.screen
+                        item.bar = root.bar
+                      }
+                    }
+
+                    Connections {
+                      target: root
+                      function onScreenChanged() {
+                        if (dashLoader.item) {
+                          dashLoader.item.screen = root.screen
+                          dashLoader.syncDash()
+                        }
                       }
                     }
                   }
                 }
 
                 Item { width: 1; height: Style.space(8) }
+              }
+            }
+
+            // Brief feedback for carousel interval / transition shortcuts
+            Rectangle {
+              anchors.horizontalCenter: parent.horizontalCenter
+              anchors.bottom: parent.bottom
+              anchors.bottomMargin: Style.space(28)
+              width: toastLabel.implicitWidth + Style.space(28)
+              height: toastLabel.implicitHeight + Style.space(16)
+              radius: Style.cornerRadius
+              color: Util.alpha(root.background, 0.92)
+              border.color: Util.alpha(root.accent, 0.45)
+              border.width: 1
+              opacity: root.toastOpacity
+              visible: root.toastOpacity > 0.01
+              z: 20
+
+              Text {
+                id: toastLabel
+                anchors.centerIn: parent
+                textFormat: Text.PlainText
+                text: root.toastText
+                color: root.accent
+                font.family: root.fontFamily
+                font.pixelSize: Style.font.title
+                font.bold: true
               }
             }
           }

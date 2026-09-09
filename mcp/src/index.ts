@@ -1,13 +1,18 @@
 import { serveMcp } from "./mcp.js";
 import {
+  bumpCarouselInterval,
+  cycleCarouselTransition,
   deleteView,
+  getCarousel,
   getScreen,
   listDatasets,
   loadViewOnScreen,
   listViews,
   refreshDataset,
   refreshDueDatasets,
+  setCarousel,
   summarizeScreen,
+  toggleCarousel,
 } from "./store.js";
 
 const args = process.argv.slice(2);
@@ -28,6 +33,32 @@ async function main() {
   }
   if (cmd === "datasets") {
     process.stdout.write(JSON.stringify({ datasets: listDatasets() }, null, 2) + "\n");
+    return;
+  }
+  if (cmd === "carousel") {
+    const sub = args[1];
+    if (sub === "off") {
+      process.stdout.write(JSON.stringify(setCarousel({ enabled: false }), null, 2) + "\n");
+      return;
+    }
+    if (sub === "toggle") {
+      process.stdout.write(JSON.stringify(toggleCarousel(), null, 2) + "\n");
+      return;
+    }
+    if (sub === "cycle-transition") {
+      process.stdout.write(JSON.stringify(cycleCarouselTransition(), null, 2) + "\n");
+      return;
+    }
+    if (sub === "interval") {
+      const raw = args[2];
+      if (!raw || !/^[-+]?\d+$/.test(raw)) {
+        process.stderr.write("usage: universal-dashboard carousel interval <+N|-N>\n");
+        process.exit(2);
+      }
+      process.stdout.write(JSON.stringify(bumpCarouselInterval(parseInt(raw, 10)), null, 2) + "\n");
+      return;
+    }
+    process.stdout.write(JSON.stringify(getCarousel(), null, 2) + "\n");
     return;
   }
   if (cmd === "load-view") {
@@ -78,6 +109,7 @@ async function main() {
           screen: summarizeScreen(getScreen()),
           views: listViews(),
           datasets: listDatasets(),
+          carousel: getCarousel(),
         },
         null,
         2,
@@ -87,7 +119,7 @@ async function main() {
   }
   process.stderr.write(`Unknown command: ${cmd}\n`);
   process.stderr.write(
-    "usage: universal-dashboard <serve|status|views|datasets|load-view|delete-view|refresh|refresh-due|doctor>\n",
+    "usage: universal-dashboard <serve|status|views|datasets|carousel|load-view|delete-view|refresh|refresh-due|doctor>\n",
   );
   process.exit(2);
 }

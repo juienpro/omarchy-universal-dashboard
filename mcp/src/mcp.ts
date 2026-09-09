@@ -5,6 +5,7 @@ import {
   configureScreenGrid,
   deleteDataset,
   deleteView,
+  getCarousel,
   getDataset,
   getScreen,
   getView,
@@ -14,10 +15,12 @@ import {
   refreshDataset,
   refreshDueDatasets,
   saveScreenAsView,
+  setCarousel,
   showOnScreen,
   summarizeDataset,
   summarizeScreen,
   upsertDataset,
+  CAROUSEL_TRANSITIONS,
   type WidgetSpec,
 } from "./store.js";
 import { MAX_COLUMNS, widgetsSpec } from "@eow/ir";
@@ -175,6 +178,34 @@ const tools = [
     },
   },
   {
+    name: "ud_views_carousel",
+    description:
+      "Enable/disable automatic cycling between saved views. Omit views (or pass []) to cycle all saved views; pass view ids to restrict the pool (order preserved). intervalSec default 10 (min 3). transition: fade | slide | scale. Call with enabled:false to stop. Panel must be open to advance.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        enabled: { type: "boolean", description: "true to start / update autoplay; false to stop" },
+        views: {
+          type: "array",
+          items: { type: "string" },
+          description: "Optional view ids to cycle (omit or [] = all saved views)",
+        },
+        intervalSec: {
+          type: "integer",
+          minimum: 3,
+          description: "Seconds between switches (default 10, min 3)",
+        },
+        transition: {
+          type: "string",
+          enum: [...CAROUSEL_TRANSITIONS],
+          description: "View transition animation (default fade)",
+        },
+      },
+      required: ["enabled"],
+      additionalProperties: false,
+    },
+  },
+  {
     name: "ud_datasets_upsert",
     description:
       "Create/update a persisted dataset: HTTP GET JSON source + refreshIntervalSec + optional QuickJS transform body. Plugin refreshes automatically; agent does not poll.",
@@ -297,6 +328,27 @@ async function callTool(name: string, args: Record<string, unknown>): Promise<To
       case "ud_views_delete": {
         const id = z.string().min(1).parse(args.id);
         return text(deleteView(id));
+      }
+      case "ud_views_carousel": {
+        const enabled = z.boolean().parse(args.enabled);
+        const intervalSec =
+          args.intervalSec !== undefined ? z.number().int().min(3).parse(args.intervalSec) : undefined;
+        const transition =
+          args.transition !== undefined
+            ? z.enum(["fade", "slide", "scale"]).parse(args.transition)
+            : undefined;
+        let views: string[] | null | undefined = undefined;
+        if (args.views !== undefined) {
+          views = z.array(z.string().min(1)).parse(args.views);
+        }
+        return text(
+          setCarousel({
+            enabled,
+            views,
+            intervalSec,
+            transition: transition as "fade" | "slide" | "scale" | undefined,
+          }),
+        );
       }
       case "ud_datasets_upsert": {
         const key = z.string().min(1).parse(args.key);
