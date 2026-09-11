@@ -12,18 +12,23 @@ https://github.com/user-attachments/assets/e6912cd5-7948-44db-b732-82379413cf0c
 
 - **One plugin, many dashboards** — stop installing a widget per use case
 - **Agent-built layouts** — create and update views from your coding harness
-- **Live data** — define a source once; the panel keeps it fresh
-- **Scrolling marquee** — ticker-style text bands (`Marquee`) with live dataset binding
-- **Inline video** — `Video` widget (URL / dataset field, size, autoplay, mute-by-default)
-- **YouTube** — `Youtube` widget (watch URL / video id); resolves a direct stream via `yt-dlp` and renews signed URLs on a timer (not a browser iframe)
-- **Images & links** — `Image` (src / srcField); `Anchor` and `List` cards open http(s) URLs; `Table` columns can bind `hrefField`
-- **List / Timeline / Button** — card grids, event timelines, and click actions (`openUrl`, `navigate`, `dataset.refresh`)
-- **Tables with links** — `Table` columns can bind `hrefField` (click opens http/https); optional `size` for denser or larger text
-- **Custom refresh per data source** — each live feed has its own cache and refresh interval
-- **Saved views** — switch between dashboards with the keyboard (`←`/`→` or `n`/`p`)
-- **View carousel** — auto-cycle saved views on a timer (`c`, or MCP `ud_view_carousel`); `Shift+C` cycles transition (fade / slide / scale); `+` / `-` adjust delay while auto-cycle is on
-- **Overlays** — shared chrome across views (`float` on top or `dock` that reserves space); survives carousel transitions; scoped to all views or a `views[]` subset
+- **Live data, deterministic retrieval** — define a source once (HTTP or derived); the plugin caches and refreshes on a schedule — the agent does not poll
+- **Views management** — list (`V`), delete (`d`), and switch (`←`/`→` or `n`/`p`) saved dashboards
+- **Overlays** — shared widgets that stay put while you switch views (`float` on top or `dock` that reserves space); survives carousel transitions; apply to all views or a subset
+- **Carousel** — auto-cycle saved views on a timer (`c`, or MCP `ud_view_carousel`); `Shift+C` cycles transition (fade / slide / scale); `+` / `-` adjust delay while auto-cycle is on
 - **Native Omarchy UX** — bar icon, shortcuts, and your theme
+
+### Supported widgets
+
+Layout: `Stack`, `Group`, `Grid`, `Container`, `Panel`, `Card`, `ScrollArea`, `Divider`
+
+Content: `Title`, `Text`, `Markdown`, `Icon`, `Badge`, `Stat`, `Marquee`
+
+Data: `Table`, `HorizontalTiles`, `List`, `Timeline`, `Chart`
+
+Media & actions: `Image`, `Video`, `Youtube`, `Anchor`, `Button`
+
+`Video` / `Youtube` need `qt6-multimedia`; `Youtube` also needs `yt-dlp` (direct stream via yt-dlp, not a browser iframe).
 
 ## Requirements
 
@@ -105,7 +110,7 @@ Omarchy reloads Hyprland on save. Suggested chord: **SUPER + CTRL + U** (same fa
 | Layer | Role |
 |---|---|
 | **View** | Layout of widgets on the panel |
-| **Overlay** | Shared chrome across views — `float` (superimposed) or `dock` (pushes/reserves space); optional view subset |
+| **Overlay** | Shared widgets that stay while views change — `float` (superimposed) or `dock` (pushes/reserves space); optional view subset |
 | **Dataset** | Named data cache with a fetch schedule |
 | **Source** | HTTP URL **or** one/more parent datasets (optional path + transform), refreshed automatically |
 
@@ -126,7 +131,7 @@ A dataset may derive from parents: `source.dataset` (one) or `source.datasets` (
 | `ud_overlay_list` | List saved overlays |
 | `ud_overlay_get` | Read one overlay by UUID |
 | `ud_overlay_create` | Create empty overlay (`slug`, `mode`, `anchor`; optional size / opacity / order / `views[]`) |
-| `ud_overlay_patch` | Patch overlay chrome and/or widgets (same widget ops as views) |
+| `ud_overlay_patch` | Patch overlay size/placement and/or widgets (same widget ops as views) |
 | `ud_overlay_delete` | Delete an overlay by UUID |
 | `ud_screen_get` | Live panel (IR + layout + `activeViewId` + matching overlays) |
 | `ud_screen_load` | Load a saved view onto the live panel by UUID |

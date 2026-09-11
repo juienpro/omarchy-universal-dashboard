@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.0.1] - 2026-09-11
+
+### Changed
+
+- README Features: lead with product capabilities (views management, overlays, carousel, deterministic live data); add a Supported widgets subsection; drop ambiguous “chrome” wording for overlays.
+
 ## [1.0.0] - 2026-09-11
 
 ### Added
