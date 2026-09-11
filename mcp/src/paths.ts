@@ -26,6 +26,14 @@ export function viewFilePath(id: string): string {
   return join(stateDir(), "views", `${id}.json`);
 }
 
+export function overlaysIndexPath(): string {
+  return join(stateDir(), "overlays.json");
+}
+
+export function overlayFilePath(id: string): string {
+  return join(stateDir(), "overlays", `${id}.json`);
+}
+
 export function datasetsDir(): string {
   return join(stateDir(), "datasets");
 }
@@ -40,6 +48,7 @@ export function datasetFilePath(key: string): string {
 
 export function ensureDirs() {
   mkdirSync(join(stateDir(), "views"), { recursive: true, mode: 0o700 });
+  mkdirSync(join(stateDir(), "overlays"), { recursive: true, mode: 0o700 });
   mkdirSync(datasetsDir(), { recursive: true, mode: 0o700 });
 }
 

@@ -4,15 +4,25 @@ One Omarchy bar plugin instead of a pile of tiny ones. Ask your AI agent to buil
 
 You describe what you want. The agent lays it out. Data refreshes on its own. Your desktop stays yours.
 
+## Demo
+
+https://github.com/user-attachments/assets/e6912cd5-7948-44db-b732-82379413cf0c
+
 ## Features
 
 - **One plugin, many dashboards** — stop installing a widget per use case
 - **Agent-built layouts** — create and update views from your coding harness
 - **Live data** — define a source once; the panel keeps it fresh
 - **Scrolling marquee** — ticker-style text bands (`Marquee`) with live dataset binding
+- **Inline video** — `Video` widget (URL / dataset field, size, autoplay, mute-by-default)
+- **YouTube** — `Youtube` widget (watch URL / video id); resolves a direct stream via `yt-dlp` and renews signed URLs on a timer (not a browser iframe)
+- **Images & links** — `Image` (src / srcField); `Anchor` and `List` cards open http(s) URLs; `Table` columns can bind `hrefField`
+- **List / Timeline / Button** — card grids, event timelines, and click actions (`openUrl`, `navigate`, `dataset.refresh`)
+- **Tables with links** — `Table` columns can bind `hrefField` (click opens http/https); optional `size` for denser or larger text
 - **Custom refresh per data source** — each live feed has its own cache and refresh interval
 - **Saved views** — switch between dashboards with the keyboard (`←`/`→` or `n`/`p`)
-- **View carousel** — auto-cycle saved views on a timer (`c`, or MCP `ud_views_carousel`); `Shift+C` cycles transition (fade / slide / scale); `+` / `-` adjust delay while auto-cycle is on
+- **View carousel** — auto-cycle saved views on a timer (`c`, or MCP `ud_view_carousel`); `Shift+C` cycles transition (fade / slide / scale); `+` / `-` adjust delay while auto-cycle is on
+- **Overlays** — shared chrome across views (`float` on top or `dock` that reserves space); survives carousel transitions; scoped to all views or a `views[]` subset
 - **Native Omarchy UX** — bar icon, shortcuts, and your theme
 
 ## Requirements
@@ -20,6 +30,8 @@ You describe what you want. The agent lays it out. Data refreshes on its own. Yo
 - **[Omarchy](https://omarchy.org/)** with the shell bar (Quickshell)
 - **Node.js** on `PATH` (the MCP/CLI is a bundled Node script — no `npm install` for end users)
 - An agent harness that can run MCP over stdio (Claude Code, Codex, etc.)
+- **`yt-dlp`** on `PATH` if you use the `Youtube` widget (stream resolve + signature refresh)
+- **`qt6-multimedia`** for `Video` / `Youtube` playback
 
 ## Install
 
@@ -93,6 +105,7 @@ Omarchy reloads Hyprland on save. Suggested chord: **SUPER + CTRL + U** (same fa
 | Layer | Role |
 |---|---|
 | **View** | Layout of widgets on the panel |
+| **Overlay** | Shared chrome across views — `float` (superimposed) or `dock` (pushes/reserves space); optional view subset |
 | **Dataset** | Named data cache with a fetch schedule |
 | **Source** | HTTP URL **or** one/more parent datasets (optional path + transform), refreshed automatically |
 
@@ -104,34 +117,45 @@ A dataset may derive from parents: `source.dataset` (one) or `source.datasets` (
 
 | Tool | Purpose |
 |---|---|
-| `ud_screen_get` | Live screen (IR + layout) |
-| `ud_screen_clear` | Clear screen (datasets kept) |
+| `ud_view_list` | List saved views |
+| `ud_view_get` | Read one view by UUID (`id` required) |
+| `ud_view_create` | Create empty view (`slug`, optional `title`) — does not change the live panel |
+| `ud_view_patch` | Patch view by `id`: `slug`/`title`, `grid`, and/or widgets `op` (`upsert` / `remove` / `replace_all` / `clear`) |
+| `ud_view_delete` | Delete a view by UUID |
+| `ud_view_carousel` | Toggle auto-cycle of views (`enabled`, optional `views[]`, `intervalSec`, `transition`) |
+| `ud_overlay_list` | List saved overlays |
+| `ud_overlay_get` | Read one overlay by UUID |
+| `ud_overlay_create` | Create empty overlay (`slug`, `mode`, `anchor`; optional size / opacity / order / `views[]`) |
+| `ud_overlay_patch` | Patch overlay chrome and/or widgets (same widget ops as views) |
+| `ud_overlay_delete` | Delete an overlay by UUID |
+| `ud_screen_get` | Live panel (IR + layout + `activeViewId` + matching overlays) |
+| `ud_screen_load` | Load a saved view onto the live panel by UUID |
+| `ud_screen_clear` | Clear live panel (`activeViewId` null; views kept) |
 | `ud_widgets_spec` | Widget props (JSON Schema); optional `{ type }` filter |
-| `ud_screen_show` | Show a widget; default upsert by `id` (`replace: false`); `replace: true` wipes the screen; optional `view:{slug,title?}` to save |
-| `ud_screen_grid` | Placement grid columns (1–26) |
-| `ud_screen_save_view` | Save live screen as a view |
-| `ud_screen_load_view` | Load a saved view |
-| `ud_views_list` | List saved views |
-| `ud_views_delete` | Delete a view |
-| `ud_views_carousel` | Toggle auto-cycle of views (`enabled`, optional `views[]`, `intervalSec`, `transition`) |
-| `ud_datasets_upsert` | Create/update a dataset (HTTP, single parent, or multi-parent) |
+| `ud_datasets_upsert` | Create/update a dataset (HTTP, single parent, or multi-parent); on update, omit `source` / interval / transform to keep existing |
 | `ud_datasets_get` | Read one dataset |
 | `ud_datasets_list` | List datasets |
 | `ud_datasets_refresh` | Force-refresh one dataset |
 | `ud_datasets_delete` | Delete a dataset |
 
-CLI helpers (same binary): `status`, `views`, `datasets`, `carousel` (`toggle` / `off` / `cycle-transition` / `interval ±N`), `load-view`, `delete-view`, `refresh`, `refresh-due`, `doctor`.
+CLI helpers (same binary): `status`, `views`, `overlays`, `datasets`, `carousel` (`toggle` / `off` / `cycle-transition` / `interval ±N`), `load-view`, `delete-view`, `refresh`, `refresh-due`, `youtube-resolve`, `doctor`.
 
 ## State
 
 | Path | Role |
 |---|---|
-| `~/.local/state/universal-dashboard/screen.json` | Live screen |
+| `~/.local/state/universal-dashboard/screen.json` | Live screen (includes matching overlays) |
 | `~/.local/state/universal-dashboard/views.json` | View index |
 | `~/.local/state/universal-dashboard/views/<id>.json` | Saved view bodies |
+| `~/.local/state/universal-dashboard/overlays.json` | Overlay index |
+| `~/.local/state/universal-dashboard/overlays/<id>.json` | Saved overlay bodies |
 | `~/.local/state/universal-dashboard/carousel.json` | Auto-cycle on/off, view pool, interval, transition |
 | `~/.local/state/universal-dashboard/datasets.json` | Dataset index |
 | `~/.local/state/universal-dashboard/datasets/<key>.json` | Source, schedule, cached payload |
+
+### Backup / restore
+
+Copy or replace the whole tree at `~/.local/state/universal-dashboard/` (views, datasets, overlays, carousel, and live screen).
 
 ## Developing
 
@@ -150,55 +174,7 @@ npm install && npm run build
 | `mcp/` | MCP TypeScript source |
 | `packages/ir` | View IR schema |
 | `skills/universal-dashboard` | Harness skill |
-
-## Releasing
-
-Versions follow [semver](https://semver.org/). Keep these in sync (the release script does it):
-
-- `manifest.json` (what Omarchy shows)
-- root / `mcp` / `packages/ir` `package.json`
-- `bin/` (rebuilt MCP bundle + `quickjs.wasm`)
-- `CHANGELOG.md`
-- git tag `vX.Y.Z`
-
-### Cut a release
-
-Working tree must be clean.
-
-```bash
-./scripts/release.sh patch|minor|major   # agent picks bump + writes CHANGELOG; or pass x.y.z
-
-git push origin HEAD
-git push origin vX.Y.Z        # triggers GitHub Release via Actions
-```
-
-The agent owns changelog notes, semver choice, `./scripts/release.sh`, commit, and push. The script bumps versions, runs `npm ci` + typecheck + build, validates the plugin, commits, and creates an annotated tag (it does not push).
-
-**Bump choice:** major = breaking public contract; minor = new backward-compatible features; patch = fixes/docs/chore.
-
-### First publish to GitHub
-
-If you are already at `0.1.0` and have never tagged:
-
-```bash
-npm ci && npm run typecheck && npm run build
-git add -A && git commit -m "Prepare 0.1.0 for GitHub"
-git tag -a v0.1.0 -m "Universal Dashboard v0.1.0"
-git remote add github git@github.com:juienpro/omarchy-universal-dashboard.git   # once
-git push github HEAD:main
-git push github v0.1.0
-```
-
-After that, always use `./scripts/release.sh`.
-
-### What users get
-
-| Command | Effect |
-|---|---|
-| `omarchy plugin add … --enable` | Clone latest `main` |
-| `omarchy plugin update juienpro.universal-dashboard` | Pull latest from the install remote |
-
-Tags / GitHub Releases are for changelogs and pinning; day-to-day Omarchy installs track the default branch unless you document otherwise.
+| `examples/` | Concise agent prompts to exercise weather, markets, news, YouTube grid, overlays |
 
 ## License
 

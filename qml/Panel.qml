@@ -38,6 +38,12 @@ Item {
   property real toastOpacity: 0
 
   readonly property bool hasContent: Model.hasContent(screen)
+  readonly property bool hasOverlays: Model.screenOverlays(screen).length > 0
+  readonly property var dockTop: Model.dockOverlays(screen, "top")
+  readonly property var dockBottom: Model.dockOverlays(screen, "bottom")
+  readonly property var dockLeft: Model.dockOverlays(screen, "left")
+  readonly property var dockRight: Model.dockOverlays(screen, "right")
+  readonly property var floats: Model.floatOverlays(screen)
   readonly property string titleText: Model.screenTitle(screen) || "Universal Dashboard"
   readonly property string activeViewTitle: {
     if (!screen.activeViewId) return ""
@@ -140,6 +146,26 @@ Item {
     if (refreshDueProc.running) return
     refreshDueProc.command = [cliPath, "refresh-due"]
     refreshDueProc.running = true
+  }
+
+  function runDatasetRefresh(key) {
+    if (!key || refreshKeyProc.running) return
+    refreshKeyProc.command = [cliPath, "refresh", String(key)]
+    refreshKeyProc.running = true
+  }
+
+  /** IR Button `on.click` actions (openDetail intentionally unsupported). */
+  function runIrClick(action) {
+    if (!action || !action.action) return
+    var a = String(action.action)
+    if (a === "openUrl") {
+      var u = Model.openableUrl(action.url)
+      if (u) Qt.openUrlExternally(u)
+    } else if (a === "navigate") {
+      if (action.viewId) root.loadView(String(action.viewId))
+    } else if (a === "dataset.refresh") {
+      if (action.dataset) root.runDatasetRefresh(String(action.dataset))
+    }
   }
 
   function cycleView(delta) {
@@ -434,6 +460,15 @@ Item {
 
   Process {
     id: refreshDueProc
+    stdout: StdioCollector {}
+    stderr: StdioCollector {}
+    onExited: {
+      screenFile.reload()
+    }
+  }
+
+  Process {
+    id: refreshKeyProc
     stdout: StdioCollector {}
     stderr: StdioCollector {}
     onExited: {
@@ -742,58 +777,237 @@ Item {
                 Item {
                   visible: !root.listOpen
                   width: parent.width
-                  height: dashStage.height
+                  height: dashShell.height
                   clip: true
 
                   Item {
-                    id: dashStage
+                    id: dashShell
                     width: parent.width
-                    height: dashLoader.item ? dashLoader.item.implicitHeight : emptyHint.implicitHeight
-                    opacity: root.dashOpacity
-                    x: root.dashSlide
-                    scale: root.dashScale
-                    transformOrigin: Item.Center
+                    height: shellColumn.height
 
-                    Text {
-                      id: emptyHint
-                      visible: !root.hasContent
+                    Column {
+                      id: shellColumn
                       width: parent.width
-                      wrapMode: Text.WordWrap
-                      textFormat: Text.PlainText
-                      text: "Connect an agent with MCP, then ask it to show something.\n\n"
-                        + "Claude:\n  claude mcp add universal-dashboard -- " + root.cliPath + " serve\n\n"
-                        + "Codex:\n  codex mcp add universal-dashboard -- " + root.cliPath + " serve"
-                      color: root.muted
-                      font.family: root.fontFamily
-                      font.pixelSize: Style.font.body
-                      lineHeight: 1.35
-                    }
+                      spacing: Style.space(8)
 
-                    Loader {
-                      id: dashLoader
-                      anchors.left: parent.left
-                      anchors.right: parent.right
-                      height: item ? Math.max(item.implicitHeight, 1) : 0
-                      active: root.hasContent && !root.listOpen
-                      source: Qt.resolvedUrl("IrView.qml")
-                      onLoaded: syncDash()
-                      onWidthChanged: syncDash()
+                      Repeater {
+                        model: root.dockTop
+                        delegate: Item {
+                          required property var modelData
+                          width: shellColumn.width
+                          height: dockTopHost.height
 
-                      function syncDash() {
-                        if (!item) return
-                        item.width = width
-                        item.screen = root.screen
-                        item.bar = root.bar
+                          OverlayHost {
+                            id: dockTopHost
+                            overlay: modelData
+                            bar: root.bar
+                            host: root
+                            inlineData: root.screen.inlineData || ({})
+                            axisWidth: parent.width
+                            width: {
+                              var w = Model.overlaySizePx(modelData.width, parent.width)
+                              return w > 0 ? w : parent.width
+                            }
+                            anchors.top: parent.top
+                            anchors.left: Model.overlayHAlign(modelData.anchor) === "start" ? parent.left : undefined
+                            anchors.right: Model.overlayHAlign(modelData.anchor) === "end" ? parent.right : undefined
+                            anchors.horizontalCenter: Model.overlayHAlign(modelData.anchor) === "center" ? parent.horizontalCenter : undefined
+                          }
+                        }
+                      }
+
+                      Item {
+                        id: midRow
+                        width: parent.width
+                        height: Math.max(leftDocks.height, viewStage.height, rightDocks.height, emptyHint.implicitHeight)
+
+                        Row {
+                          id: midInner
+                          width: parent.width
+                          spacing: Style.space(8)
+
+                          Column {
+                            id: leftDocks
+                            spacing: Style.space(8)
+                            width: {
+                              var maxW = 0
+                              for (var i = 0; i < root.dockLeft.length; i++) {
+                                var w = Model.overlaySizePx(root.dockLeft[i].width, midRow.width)
+                                if (w > maxW) maxW = w
+                              }
+                              return maxW
+                            }
+                            visible: root.dockLeft.length > 0
+
+                            Repeater {
+                              model: root.dockLeft
+                              delegate: OverlayHost {
+                                required property var modelData
+                                overlay: modelData
+                                bar: root.bar
+                                host: root
+                                inlineData: root.screen.inlineData || ({})
+                                axisWidth: midRow.width
+                                axisHeight: midRow.height
+                                width: {
+                                  var w = Model.overlaySizePx(modelData.width, midRow.width)
+                                  return w > 0 ? w : implicitWidth
+                                }
+                              }
+                            }
+                          }
+
+                          Item {
+                            id: viewStage
+                            width: Math.max(80, midInner.width - leftDocks.width - rightDocks.width - (leftDocks.visible ? midInner.spacing : 0) - (rightDocks.visible ? midInner.spacing : 0))
+                            height: Math.max(
+                              viewMotion.height,
+                              emptyHint.visible ? emptyHint.implicitHeight : 0,
+                              1
+                            )
+                            clip: true
+
+                            Item {
+                              id: viewMotion
+                              width: parent.width
+                              height: Math.max(dashLoader.item ? dashLoader.item.implicitHeight : 0, 1)
+                              opacity: root.dashOpacity
+                              x: root.dashSlide
+                              scale: root.dashScale
+                              transformOrigin: Item.Center
+
+                              Text {
+                                id: emptyHint
+                                visible: !root.hasContent && !root.hasOverlays
+                                width: parent.width
+                                wrapMode: Text.WordWrap
+                                textFormat: Text.PlainText
+                                text: "Connect an agent with MCP, then ask it to show something.\n\n"
+                                  + "Claude:\n  claude mcp add universal-dashboard -- " + root.cliPath + " serve\n\n"
+                                  + "Codex:\n  codex mcp add universal-dashboard -- " + root.cliPath + " serve"
+                                color: root.muted
+                                font.family: root.fontFamily
+                                font.pixelSize: Style.font.body
+                                lineHeight: 1.35
+                              }
+
+                              Loader {
+                                id: dashLoader
+                                anchors.left: parent.left
+                                anchors.right: parent.right
+                                height: item ? Math.max(item.implicitHeight, 1) : 0
+                                active: root.hasContent && !root.listOpen
+                                source: Qt.resolvedUrl("IrView.qml")
+                                onLoaded: syncDash()
+                                onWidthChanged: syncDash()
+
+                                function syncDash() {
+                                  if (!item) return
+                                  item.width = width
+                                  item.screen = root.screen
+                                  item.bar = root.bar
+                                  item.host = root
+                                }
+                              }
+
+                              Connections {
+                                target: root
+                                function onScreenChanged() {
+                                  if (dashLoader.item) {
+                                    dashLoader.item.screen = root.screen
+                                    dashLoader.syncDash()
+                                  }
+                                }
+                              }
+                            }
+                          }
+
+                          Column {
+                            id: rightDocks
+                            spacing: Style.space(8)
+                            width: {
+                              var maxW = 0
+                              for (var i = 0; i < root.dockRight.length; i++) {
+                                var w = Model.overlaySizePx(root.dockRight[i].width, midRow.width)
+                                if (w > maxW) maxW = w
+                              }
+                              return maxW
+                            }
+                            visible: root.dockRight.length > 0
+
+                            Repeater {
+                              model: root.dockRight
+                              delegate: OverlayHost {
+                                required property var modelData
+                                overlay: modelData
+                                bar: root.bar
+                                host: root
+                                inlineData: root.screen.inlineData || ({})
+                                axisWidth: midRow.width
+                                axisHeight: midRow.height
+                                width: {
+                                  var w = Model.overlaySizePx(modelData.width, midRow.width)
+                                  return w > 0 ? w : implicitWidth
+                                }
+                              }
+                            }
+                          }
+                        }
+                      }
+
+                      Repeater {
+                        model: root.dockBottom
+                        delegate: Item {
+                          required property var modelData
+                          width: shellColumn.width
+                          height: dockBottomHost.height
+
+                          OverlayHost {
+                            id: dockBottomHost
+                            overlay: modelData
+                            bar: root.bar
+                            host: root
+                            inlineData: root.screen.inlineData || ({})
+                            axisWidth: parent.width
+                            width: {
+                              var w = Model.overlaySizePx(modelData.width, parent.width)
+                              return w > 0 ? w : parent.width
+                            }
+                            anchors.top: parent.top
+                            anchors.left: Model.overlayHAlign(modelData.anchor) === "start" ? parent.left : undefined
+                            anchors.right: Model.overlayHAlign(modelData.anchor) === "end" ? parent.right : undefined
+                            anchors.horizontalCenter: Model.overlayHAlign(modelData.anchor) === "center" ? parent.horizontalCenter : undefined
+                          }
+                        }
                       }
                     }
 
-                    Connections {
-                      target: root
-                      function onScreenChanged() {
-                        if (dashLoader.item) {
-                          dashLoader.item.screen = root.screen
-                          dashLoader.syncDash()
+                    // Float overlays — superimposed over the whole shell (not animated with carousel).
+                    Repeater {
+                      model: root.floats
+                      delegate: OverlayHost {
+                        required property var modelData
+                        overlay: modelData
+                        bar: root.bar
+                        host: root
+                        inlineData: root.screen.inlineData || ({})
+                        axisWidth: dashShell.width
+                        axisHeight: dashShell.height
+                        z: 10
+                        width: {
+                          var w = Model.overlaySizePx(modelData.width, dashShell.width)
+                          return w > 0 ? w : implicitWidth
                         }
+                        height: {
+                          var h = Model.overlaySizePx(modelData.height, dashShell.height)
+                          return h > 0 ? h : implicitHeight
+                        }
+                        anchors.left: Model.overlayHAlign(modelData.anchor) === "start" ? parent.left : undefined
+                        anchors.right: Model.overlayHAlign(modelData.anchor) === "end" ? parent.right : undefined
+                        anchors.horizontalCenter: Model.overlayHAlign(modelData.anchor) === "center" ? parent.horizontalCenter : undefined
+                        anchors.top: Model.overlayVAlign(modelData.anchor) === "start" ? parent.top : undefined
+                        anchors.bottom: Model.overlayVAlign(modelData.anchor) === "end" ? parent.bottom : undefined
+                        anchors.verticalCenter: Model.overlayVAlign(modelData.anchor) === "center" ? parent.verticalCenter : undefined
                       }
                     }
                   }

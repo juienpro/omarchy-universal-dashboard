@@ -24,18 +24,20 @@ export const RENDERED_WIDGET_TYPES = [
   "Divider",
   "Table",
   "HorizontalTiles",
-] as const satisfies readonly ComponentType[];
-
-/** IR types accepted by MCP but shown as placeholders in the panel. */
-export const PLACEHOLDER_WIDGET_TYPES = [
-  "Chart",
-  "Map",
   "List",
   "Timeline",
   "Image",
   "Button",
-  "Repeat",
   "Anchor",
+  "Chart",
+  "Video",
+  "Youtube",
+] as const satisfies readonly ComponentType[];
+
+/** IR types accepted by MCP but shown as placeholders in the panel. */
+export const PLACEHOLDER_WIDGET_TYPES = [
+  "Map",
+  "Repeat",
 ] as const satisfies readonly ComponentType[];
 
 export type WidgetSpecEntry = {
@@ -101,7 +103,7 @@ export function widgetsSpec(filterType?: string): {
   return {
     widgets,
     placement: {
-      note: "Top-level on ud_screen_show (sibling of widget), not inside props.",
+      note: "On ud_view_patch widgets.layout (sibling of widget), not inside props.",
       column: "1-based start column (1..grid.columns)",
       index: "0-based row band (same index = same horizontal row)",
       colspan: "width in columns (default 1)",

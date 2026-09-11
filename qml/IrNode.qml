@@ -8,6 +8,8 @@ Item {
   property string nodeId: ""
   property var screen: null
   property var bar: null
+  /** Panel root — Button click actions (navigate / refresh / openUrl). */
+  property var host: null
   property var colors: ({})
   /** When set (HorizontalTiles stamp), field/glyph/text binds use this row instead of dataset pick. */
   property var dataRow: null
@@ -29,6 +31,11 @@ Item {
       case "displayLarge": return Style.font.displayLarge
       default: return Style.font.body
     }
+  }
+
+  function runClick(action) {
+    if (root.host && typeof root.host.runIrClick === "function")
+      root.host.runIrClick(action)
   }
 
   // Recursive children must load by URL — direct `IrNode {}` inside this file
@@ -55,6 +62,7 @@ Item {
         item.nodeId = wrap.childId
         item.screen = root.screen
         item.bar = root.bar
+        item.host = root.host
         item.colors = root.colors
         item.dataRow = wrap.dataRow
       }
@@ -70,6 +78,7 @@ Item {
       target: root
       function onScreenChanged() { if (loader.item) loader.sync() }
       function onBarChanged() { if (loader.item) loader.sync() }
+      function onHostChanged() { if (loader.item) loader.sync() }
       function onColorsChanged() { if (loader.item) loader.sync() }
       function onDataRowChanged() { if (loader.item) loader.sync() }
     }
@@ -356,6 +365,8 @@ Item {
 
       readonly property var tableColumns: props.columns || []
       readonly property int colCount: Math.max(1, tableColumns.length)
+      readonly property string cellFont: Model.fontToken(props.size)
+      readonly property string headerFont: Model.tableHeaderFontToken(props.size)
 
       function colWidth(col) {
         if (col && col.width) return col.width
@@ -376,7 +387,7 @@ Item {
             text: String(modelData.label || modelData.field || "")
             color: Model.textColor("muted", colors)
             font.family: root.uiFont
-            font.pixelSize: root.fontPx("bodySmall")
+            font.pixelSize: root.fontPx(tableCol.headerFont)
             font.bold: true
           }
         }
@@ -397,15 +408,41 @@ Item {
           spacing: 8
           Repeater {
             model: tableCol.tableColumns
-            delegate: Text {
+            delegate: Item {
+              id: cellWrap
               required property var modelData
               width: tableCol.colWidth(modelData)
-              elide: Text.ElideRight
-              textFormat: Text.PlainText
-              text: Model.formatValue(Model.readField(dataRow.rowData, modelData.field))
-              color: Model.textColor("default", colors)
-              font.family: root.uiFont
-              font.pixelSize: root.fontPx("body")
+              height: cellText.implicitHeight
+              implicitHeight: cellText.implicitHeight
+
+              readonly property string href: {
+                var hf = modelData && modelData.hrefField ? String(modelData.hrefField) : ""
+                if (!hf) return ""
+                return Model.openableUrl(Model.readField(dataRow.rowData, hf))
+              }
+              readonly property bool hasLink: href.length > 0
+
+              Text {
+                id: cellText
+                width: parent.width
+                elide: Text.ElideRight
+                textFormat: Text.PlainText
+                text: Model.formatValue(Model.readField(dataRow.rowData, modelData.field))
+                color: Model.textColor(cellWrap.hasLink ? "primary" : "default", colors)
+                font.family: root.uiFont
+                font.pixelSize: root.fontPx(tableCol.cellFont)
+                font.underline: cellWrap.hasLink
+              }
+
+              MouseArea {
+                anchors.fill: parent
+                enabled: cellWrap.hasLink
+                cursorShape: cellWrap.hasLink ? Qt.PointingHandCursor : Qt.ArrowCursor
+                onClicked: {
+                  if (cellWrap.href)
+                    Qt.openUrlExternally(cellWrap.href)
+                }
+              }
             }
           }
         }
@@ -507,13 +544,524 @@ Item {
       function onColorsChanged() { if (chartLoader.item) chartLoader.sync() }
     }
 
+    // ---- Video (see VideoWidget.qml) ----
+    Item {
+      id: videoWrap
+      visible: node && node.type === "Video"
+      width: parent.width
+
+      readonly property int videoH: Model.videoHeight(props, width)
+
+      height: visible ? videoH : 0
+      implicitHeight: height
+
+      Loader {
+        id: videoLoader
+        width: parent.width
+        height: videoWrap.videoH
+        active: videoWrap.visible
+        source: active ? Qt.resolvedUrl("VideoWidget.qml") : ""
+
+        function sync() {
+          if (!item) return
+          item.width = videoWrap.width
+          item.props = root.props
+          item.screen = root.screen
+          item.colors = root.colors
+          item.dataRow = root.dataRow
+          item.uiFont = root.uiFont
+        }
+
+        onLoaded: sync()
+      }
+
+      onWidthChanged: if (videoLoader.item) videoLoader.sync()
+      onVideoHChanged: if (videoLoader.item) videoLoader.sync()
+    }
+
+    Connections {
+      target: root
+      enabled: videoWrap.visible
+      function onPropsChanged() { if (videoLoader.item) videoLoader.sync() }
+      function onScreenChanged() { if (videoLoader.item) videoLoader.sync() }
+      function onColorsChanged() { if (videoLoader.item) videoLoader.sync() }
+      function onDataRowChanged() { if (videoLoader.item) videoLoader.sync() }
+    }
+
+    // ---- Youtube (yt-dlp resolve + VideoWidget-style playback) ----
+    Item {
+      id: youtubeWrap
+      visible: node && node.type === "Youtube"
+      width: parent.width
+
+      readonly property int videoH: Model.videoHeight(props, width)
+
+      height: visible ? videoH : 0
+      implicitHeight: height
+
+      Loader {
+        id: youtubeLoader
+        width: parent.width
+        height: youtubeWrap.videoH
+        active: youtubeWrap.visible
+        source: active ? Qt.resolvedUrl("YoutubeWidget.qml") : ""
+
+        function sync() {
+          if (!item) return
+          item.width = youtubeWrap.width
+          item.props = root.props
+          item.screen = root.screen
+          item.colors = root.colors
+          item.dataRow = root.dataRow
+          item.uiFont = root.uiFont
+        }
+
+        onLoaded: sync()
+      }
+
+      onWidthChanged: if (youtubeLoader.item) youtubeLoader.sync()
+      onVideoHChanged: if (youtubeLoader.item) youtubeLoader.sync()
+    }
+
+    Connections {
+      target: root
+      enabled: youtubeWrap.visible
+      function onPropsChanged() { if (youtubeLoader.item) youtubeLoader.sync() }
+      function onScreenChanged() { if (youtubeLoader.item) youtubeLoader.sync() }
+      function onColorsChanged() { if (youtubeLoader.item) youtubeLoader.sync() }
+      function onDataRowChanged() { if (youtubeLoader.item) youtubeLoader.sync() }
+    }
+
+    // ---- Image ----
+    Item {
+      id: imageWrap
+      visible: node && node.type === "Image"
+      width: parent.width
+      height: visible ? Model.imageHeight(props) : 0
+      implicitHeight: height
+
+      readonly property string imgSrc: node && node.type === "Image"
+        ? Model.boundSrc(props, screen, root.dataRow) : ""
+
+      Rectangle {
+        anchors.fill: parent
+        radius: Model.gapPx(props.radius || "sm")
+        color: Util.alpha(colors.muted || colors.foreground || "#888", 0.12)
+        clip: true
+
+        Image {
+          anchors.fill: parent
+          source: imageWrap.imgSrc
+          fillMode: Image.PreserveAspectFit
+          asynchronous: true
+          visible: imageWrap.imgSrc.length > 0
+        }
+
+        Text {
+          anchors.centerIn: parent
+          width: parent.width - 16
+          horizontalAlignment: Text.AlignHCenter
+          wrapMode: Text.WordWrap
+          visible: !imageWrap.imgSrc.length
+          textFormat: Text.PlainText
+          text: Model.boundAlt(props, screen, root.dataRow) || "No image"
+          color: Model.textColor("muted", colors)
+          font.family: root.uiFont
+          font.pixelSize: root.fontPx("bodySmall")
+          font.italic: true
+        }
+      }
+    }
+
+    // ---- Anchor (clickable link) ----
+    Item {
+      id: anchorWrap
+      visible: node && node.type === "Anchor"
+      width: parent.width
+      implicitHeight: visible ? anchorText.implicitHeight : 0
+      height: implicitHeight
+
+      readonly property string href: node && node.type === "Anchor"
+        ? Model.boundHref(props, screen, root.dataRow) : ""
+      readonly property bool hasLink: href.length > 0
+
+      Text {
+        id: anchorText
+        width: parent.width
+        wrapMode: Text.WordWrap
+        textFormat: Text.PlainText
+        text: Model.boundLabel(props, screen, root.dataRow) || (anchorWrap.hasLink ? anchorWrap.href : "")
+        color: Model.textColor(anchorWrap.hasLink ? "primary" : "muted", colors)
+        font.family: root.uiFont
+        font.pixelSize: root.fontPx(Model.fontToken(props.size))
+        font.underline: anchorWrap.hasLink
+      }
+
+      MouseArea {
+        anchors.fill: parent
+        enabled: anchorWrap.hasLink
+        cursorShape: anchorWrap.hasLink ? Qt.PointingHandCursor : Qt.ArrowCursor
+        onClicked: {
+          if (anchorWrap.href)
+            Qt.openUrlExternally(anchorWrap.href)
+        }
+      }
+    }
+
+    // ---- Button ----
+    Rectangle {
+      id: buttonWrap
+      visible: node && node.type === "Button"
+      radius: Style.cornerRadius
+      implicitWidth: Math.min(parent.width, buttonLabel.implicitWidth + 28)
+      implicitHeight: buttonLabel.implicitHeight + 14
+      width: implicitWidth
+      height: implicitHeight
+
+      readonly property string variant: String(props.variant || "filled")
+      readonly property var clickAction: node && node.on && node.on.click ? node.on.click : null
+
+      color: {
+        var v = buttonWrap.variant
+        if (v === "outline" || v === "subtle") return "transparent"
+        if (v === "light") return Util.alpha(colors.accent || "#888", 0.18)
+        return colors.accent || "#688"
+      }
+      border.width: buttonWrap.variant === "outline" ? 1 : 0
+      border.color: colors.accent || "#888"
+
+      Text {
+        id: buttonLabel
+        anchors.centerIn: parent
+        textFormat: Text.PlainText
+        text: String(props.label || "")
+        color: {
+          var v = buttonWrap.variant
+          if (v === "filled") return colors.foreground || "#fff"
+          return Model.textColor("primary", colors)
+        }
+        font.family: root.uiFont
+        font.pixelSize: root.fontPx("body")
+        font.bold: true
+      }
+
+      MouseArea {
+        anchors.fill: parent
+        cursorShape: buttonWrap.clickAction ? Qt.PointingHandCursor : Qt.ArrowCursor
+        enabled: !!buttonWrap.clickAction
+        onClicked: root.runClick(buttonWrap.clickAction)
+      }
+    }
+
+    // ---- List (card grid / stack; hrefField opens URL — detailKey unsupported) ----
+    Flow {
+      id: listGrid
+      visible: node && node.type === "List" && String(props.layout || "stack") === "grid"
+      width: parent.width
+      spacing: Model.gapPx("md")
+
+      readonly property var rows: {
+        if (!node || node.type !== "List") return []
+        var all = Model.asRows(Model.datasetOf(screen, props.dataset))
+        var limit = props.limit || 24
+        return all.slice(0, limit)
+      }
+      readonly property int cols: Math.max(1, props.cols || 3)
+      readonly property real cellW: {
+        var gap = Model.gapPx("md")
+        var n = cols
+        return Math.max(80, Math.floor((width - gap * (n - 1)) / n))
+      }
+      readonly property string titleFont: Model.fontToken(props.size)
+      readonly property string subFont: Model.tableHeaderFontToken(props.size)
+      readonly property string metaFont: Model.listMetaFontToken(props.size)
+
+      Repeater {
+        model: listGrid.rows
+        delegate: Rectangle {
+          id: listGridCard
+          required property var modelData
+          property var rowData: modelData
+          width: listGrid.cellW
+          implicitHeight: listGridInner.implicitHeight + 20
+          height: implicitHeight
+          radius: Style.cornerRadius
+          color: Util.alpha(colors.foreground || "#fff", 0.06)
+
+          readonly property string href: {
+            var hf = props.hrefField ? String(props.hrefField) : ""
+            if (!hf) return ""
+            return Model.openableUrl(Model.readField(listGridCard.rowData, hf))
+          }
+
+          Column {
+            id: listGridInner
+            anchors.left: parent.left
+            anchors.right: parent.right
+            anchors.top: parent.top
+            anchors.margins: 10
+            spacing: 4
+
+            Image {
+              visible: !!(props.imageField) && String(Model.readField(listGridCard.rowData, props.imageField) || "").length > 0
+              width: parent.width
+              height: 72
+              fillMode: Image.PreserveAspectCrop
+              asynchronous: true
+              source: props.imageField ? String(Model.readField(listGridCard.rowData, props.imageField) || "") : ""
+            }
+
+            Text {
+              width: parent.width
+              wrapMode: Text.WordWrap
+              textFormat: Text.PlainText
+              text: Model.formatValue(Model.readField(listGridCard.rowData, props.titleField))
+              color: Model.textColor("default", colors)
+              font.family: root.uiFont
+              font.pixelSize: root.fontPx(listGrid.titleFont)
+              font.bold: true
+            }
+
+            Text {
+              visible: !!(props.subtitleField)
+              width: parent.width
+              wrapMode: Text.WordWrap
+              textFormat: Text.PlainText
+              text: Model.formatValue(Model.readField(listGridCard.rowData, props.subtitleField))
+              color: Model.textColor("muted", colors)
+              font.family: root.uiFont
+              font.pixelSize: root.fontPx(listGrid.subFont)
+            }
+
+            Text {
+              visible: !!(props.metaField)
+              width: parent.width
+              elide: Text.ElideRight
+              textFormat: Text.PlainText
+              text: Model.formatValue(Model.readField(listGridCard.rowData, props.metaField))
+              color: Model.textColor("muted", colors)
+              font.family: root.uiFont
+              font.pixelSize: root.fontPx(listGrid.metaFont)
+            }
+          }
+
+          MouseArea {
+            anchors.fill: parent
+            enabled: listGridCard.href.length > 0
+            cursorShape: listGridCard.href.length ? Qt.PointingHandCursor : Qt.ArrowCursor
+            onClicked: {
+              if (listGridCard.href)
+                Qt.openUrlExternally(listGridCard.href)
+            }
+          }
+        }
+      }
+    }
+
+    Column {
+      id: listStack
+      visible: node && node.type === "List" && String(props.layout || "stack") !== "grid"
+      width: parent.width
+      spacing: Model.gapPx("sm")
+
+      readonly property var rows: {
+        if (!node || node.type !== "List") return []
+        var all = Model.asRows(Model.datasetOf(screen, props.dataset))
+        var limit = props.limit || 24
+        return all.slice(0, limit)
+      }
+      readonly property string titleFont: Model.fontToken(props.size)
+      readonly property string subFont: Model.tableHeaderFontToken(props.size)
+      readonly property string metaFont: Model.listMetaFontToken(props.size)
+
+      Repeater {
+        model: listStack.rows
+        delegate: Rectangle {
+          id: listStackCard
+          required property var modelData
+          property var rowData: modelData
+          width: parent.width
+          implicitHeight: listStackInner.implicitHeight + 16
+          height: implicitHeight
+          radius: Style.cornerRadius
+          color: Util.alpha(colors.foreground || "#fff", 0.06)
+
+          readonly property string href: {
+            var hf = props.hrefField ? String(props.hrefField) : ""
+            if (!hf) return ""
+            return Model.openableUrl(Model.readField(listStackCard.rowData, hf))
+          }
+
+          Row {
+            id: listStackInner
+            anchors.left: parent.left
+            anchors.right: parent.right
+            anchors.verticalCenter: parent.verticalCenter
+            anchors.margins: 8
+            spacing: 10
+
+            readonly property bool hasImg: !!(props.imageField)
+              && String(Model.readField(listStackCard.rowData, props.imageField) || "").length > 0
+
+            Image {
+              visible: listStackInner.hasImg
+              width: 48
+              height: 48
+              fillMode: Image.PreserveAspectCrop
+              asynchronous: true
+              source: props.imageField ? String(Model.readField(listStackCard.rowData, props.imageField) || "") : ""
+            }
+
+            Column {
+              width: listStackCard.width - 16 - (listStackInner.hasImg ? 58 : 0)
+              spacing: 2
+
+              Text {
+                width: parent.width
+                wrapMode: Text.WordWrap
+                textFormat: Text.PlainText
+                text: Model.formatValue(Model.readField(listStackCard.rowData, props.titleField))
+                color: Model.textColor("default", colors)
+                font.family: root.uiFont
+                font.pixelSize: root.fontPx(listStack.titleFont)
+                font.bold: true
+              }
+
+              Text {
+                visible: !!(props.subtitleField)
+                width: parent.width
+                wrapMode: Text.WordWrap
+                textFormat: Text.PlainText
+                text: Model.formatValue(Model.readField(listStackCard.rowData, props.subtitleField))
+                color: Model.textColor("muted", colors)
+                font.family: root.uiFont
+                font.pixelSize: root.fontPx(listStack.subFont)
+              }
+
+              Text {
+                visible: !!(props.metaField)
+                width: parent.width
+                elide: Text.ElideRight
+                textFormat: Text.PlainText
+                text: Model.formatValue(Model.readField(listStackCard.rowData, props.metaField))
+                color: Model.textColor("muted", colors)
+                font.family: root.uiFont
+                font.pixelSize: root.fontPx(listStack.metaFont)
+              }
+            }
+          }
+
+          MouseArea {
+            anchors.fill: parent
+            enabled: listStackCard.href.length > 0
+            cursorShape: listStackCard.href.length ? Qt.PointingHandCursor : Qt.ArrowCursor
+            onClicked: {
+              if (listStackCard.href)
+                Qt.openUrlExternally(listStackCard.href)
+            }
+          }
+        }
+      }
+    }
+
+    // ---- Timeline ----
+    Column {
+      id: timelineCol
+      visible: node && node.type === "Timeline"
+      width: parent.width
+      spacing: 0
+
+      readonly property var rows: {
+        if (!node || node.type !== "Timeline") return []
+        return Model.asRows(Model.datasetOf(screen, props.dataset))
+      }
+
+      Repeater {
+        model: timelineCol.rows
+        delegate: Item {
+          id: tlItem
+          required property var modelData
+          required property int index
+          width: parent.width
+          implicitHeight: tlRow.implicitHeight + 8
+          height: implicitHeight
+
+          Row {
+            id: tlRow
+            width: parent.width
+            spacing: 10
+
+            Item {
+              width: 12
+              height: tlTextCol.implicitHeight
+
+              Rectangle {
+                anchors.horizontalCenter: parent.horizontalCenter
+                width: 2
+                height: parent.height
+                color: Util.alpha(colors.accent || "#888", 0.35)
+                visible: tlItem.index < timelineCol.rows.length - 1
+              }
+
+              Rectangle {
+                anchors.horizontalCenter: parent.horizontalCenter
+                anchors.top: parent.top
+                anchors.topMargin: 4
+                width: 8
+                height: 8
+                radius: 4
+                color: colors.accent || "#888"
+              }
+            }
+
+            Column {
+              id: tlTextCol
+              width: parent.width - 22
+              spacing: 2
+
+              Text {
+                width: parent.width
+                textFormat: Text.PlainText
+                text: Model.formatValue(Model.readField(tlItem.modelData, props.timeField))
+                color: Model.textColor("muted", colors)
+                font.family: root.uiFont
+                font.pixelSize: root.fontPx("caption")
+              }
+
+              Text {
+                width: parent.width
+                wrapMode: Text.WordWrap
+                textFormat: Text.PlainText
+                text: Model.formatValue(Model.readField(tlItem.modelData, props.titleField))
+                color: Model.textColor("default", colors)
+                font.family: root.uiFont
+                font.pixelSize: root.fontPx("body")
+                font.bold: true
+              }
+
+              Text {
+                visible: !!(props.bodyField)
+                width: parent.width
+                wrapMode: Text.WordWrap
+                textFormat: Text.PlainText
+                text: Model.formatValue(Model.readField(tlItem.modelData, props.bodyField))
+                color: Model.textColor("muted", colors)
+                font.family: root.uiFont
+                font.pixelSize: root.fontPx("bodySmall")
+              }
+            }
+          }
+        }
+      }
+    }
+
     // Fallback for unsupported widgets
     Text {
-      visible: node && ["Map", "List", "Timeline", "Image", "Button", "Anchor"].indexOf(node.type) !== -1
+      visible: node && node.type === "Map"
       width: parent.width
       wrapMode: Text.WordWrap
       textFormat: Text.PlainText
-      text: "[" + (node ? node.type : "?") + " — coming soon]"
+      text: "[Map — coming soon]"
       color: Model.textColor("muted", colors)
       font.family: root.uiFont
       font.pixelSize: root.fontPx("body")

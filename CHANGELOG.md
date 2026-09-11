@@ -7,6 +7,32 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.0.0] - 2026-09-11
+
+### Added
+
+- Overlays: shared chrome across views (`ud_overlay_list` / `get` / `create` / `patch` / `delete`). `mode: float` superimposes; `mode: dock` reserves space and pushes the view. Anchors (edges / corners / center), optional `width`/`height` (px or `%`), `opacity`, `order`, and `views[]` (omit/`[]` = all views). Matching overlays are embedded in `screen.json` and stay put during carousel transitions. State under `overlays.json` + `overlays/<id>.json`.
+- `Youtube` widget: watch URL / `videoId` → `yt-dlp` resolves a direct stream for Qt Multimedia; re-resolves on `resolveIntervalSec` (default 20 min) and on playback error. Prefers HLS / progressive formats. CLI `youtube-resolve`; `doctor` reports `yt-dlp`. Not a WebEngine iframe.
+- `Video` widget: inline playback via Qt Multimedia (`src` / `srcField` + optional `dataset`); `height` or `size` (xs–2xl), `autoPlay` (default true), `sound` (default false / muted). Needs `qt6-multimedia`.
+- `Youtube` / `Video`: hover chrome (`controls`, default on) — click play/pause, mute/unmute; IR `sound` is only the initial mute state. `fit` (`cover` default / `contain` / `stretch`) and optional `aspect: "16:9"`.
+- `List`: card grid/stack from a dataset (`titleField`, optional `subtitleField` / `metaField` / `imageField` / `hrefField`, `layout`, `cols`, `limit`, optional `size`). http(s) via `hrefField` opens on card click.
+- `Timeline`: vertical events (`titleField`, `timeField`, optional `bodyField`).
+- `Image`: `src` / `srcField` (+ optional `dataset`), `alt` / `altField`, `height`, `radius`.
+- `Anchor`: clickable http(s) link (`label` / `labelField`, `href` / `hrefField`, optional `dataset`, `size`).
+- `Button`: labeled control with `on.click` actions `openUrl`, `navigate`, `dataset.refresh`. MCP widget upsert accepts `on`.
+- `Table`: optional `size` (`xs`…`2xl`) for cell text; per-column `hrefField` opens http(s) URLs on click.
+- `Text` / `Title` / `Badge`: optional `dataset` with `textField` for live binding (same runtime path as Marquee).
+- `examples/`: short agent prompts for weather, stocks, HN, Omarchy RSS, YouTube grid, ticker dock overlay, and float logo.
+- README: demo video, feature/requirements coverage for video/YouTube/overlays, and backup/restore note for the whole state tree.
+
+### Changed
+
+- **Breaking (MCP):** views vs screen split. Content mutations go through `ud_view_*` (`list` / `get` / `create` / `patch` / `delete` / `carousel`). Live panel: `ud_screen_get` / `ud_screen_load` / `ud_screen_clear`. Removed `ud_screen_show`, `ud_screen_save_view`, `ud_screen_load_view`, `ud_screen_grid`, `ud_views_list`, `ud_views_delete`, `ud_views_carousel`. `ud_view_patch` widgets ops: `upsert` | `remove` | `replace_all` | `clear`.
+- `ud_screen_get` / live `screen.json` include matching `overlays` for the active view.
+- `ud_widgets_spec`: `Chart` is `rendered: true`; `List` / `Timeline` / `Image` / `Button` / `Anchor` now `rendered: true` (`Map` remains placeholder).
+- `ud_datasets_upsert`: `source` required only on create; updates may omit `source` / `refreshIntervalSec` / `transform` to keep existing values.
+- Skill and README updated for the new MCP surface, overlays, and media widgets.
+
 ## [0.3.0] - 2026-09-09
 
 ### Added

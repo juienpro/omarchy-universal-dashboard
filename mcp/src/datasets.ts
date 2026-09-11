@@ -335,7 +335,8 @@ function topoSortKeys(keys: string[]): string[] {
 
 export function upsertDataset(input: {
   key: string;
-  source: unknown;
+  /** Required on create; omit on update to keep the existing source. */
+  source?: unknown;
   refreshIntervalSec?: number;
   /** Function body; pass null to clear. Omit to keep existing. */
   transform?: string | null;
@@ -344,10 +345,17 @@ export function upsertDataset(input: {
     .trim()
     .toLowerCase();
   assertPersistedKey(key);
-  const source = parseSource(input.source);
-  assertAcyclicDerived(key, source);
-  const refreshIntervalSec = Math.max(MIN_INTERVAL, Math.floor(input.refreshIntervalSec ?? 600));
   const existing = getDataset(key);
+  const hasSource = input.source !== undefined && input.source !== null;
+  if (!existing && !hasSource) {
+    throw new Error("source is required when creating a dataset");
+  }
+  const source = hasSource ? parseSource(input.source) : existing!.source;
+  assertAcyclicDerived(key, source);
+  const refreshIntervalSec =
+    input.refreshIntervalSec !== undefined
+      ? Math.max(MIN_INTERVAL, Math.floor(input.refreshIntervalSec))
+      : (existing?.refreshIntervalSec ?? 600);
   const now = nowIso();
 
   let transform: string | undefined = existing?.transform;

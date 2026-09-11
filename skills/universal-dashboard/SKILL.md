@@ -45,22 +45,24 @@ Workarounds are allowed **only** when the user explicitly requests that specific
 
 - Reading or modifying Universal Dashboard / Omarchy plugin source to implement dashboard features
 - Contourner un trou de schéma (prop absente) avec un autre widget ou un champ dérivé
-- `ud_screen_show` with `replace: true` when other widgets must stay (style/prop updates → same `id`, omit `replace` or `false`)
+- Mutating the live screen for content — always `ud_view_patch` / `ud_overlay_patch` (then `ud_screen_load` if the view is not active)
+- Using `widgets.op: "replace_all"` / `"clear"` when you only meant to update one widget — use `upsert` / `remove`
 - `Stat` / `Table` / `Icon` with `dataset` **without** a prior successful upsert (+ refresh)
 - Dumping live numbers into a giant `Markdown` blob
 - Using `Table` for hour→icon / forecast strips — use `HorizontalTiles` instead
 - Using `_screen.*` / `widget.data` for anything that must survive reload or auto-refresh
-- Putting `view` inside `widget` / `props`
-- Putting `children` / `layout` in `props`
+- Putting `layout` / `children` inside `props`
 - Expecting the view IR to map codes → icons (use `transform` instead)
 - Icon glyphs that are English/icon-pack names instead of characters
 - Steering the user toward an unrelated sample topic
 
-## Mental model (three layers)
+## Mental model
 
 | Layer | What it is | Who |
 |---|---|---|
-| **View** | IR + layout (widgets on screen) | You via `ud_screen_show` / views |
+| **View** | Persisted dashboard (IR + layout), addressed by **UUID** | You via `ud_view_*` |
+| **Overlay** | Shared chrome across views (`float` or `dock`), addressed by **UUID** | You via `ud_overlay_*` |
+| **Screen** | Live panel now (`activeViewId` + IR + matching overlays) | You via `ud_screen_get` / `load` / `clear` |
 | **Dataset** | Named JSON **cache** + last fetch / error | Plugin files under `datasets/` |
 | **Source** | HTTP GET **or** parent `dataset` / `datasets` (+ optional `jsonPath` on single) + optional **QuickJS `transform`** + `refreshIntervalSec` | You **once** at create; plugin **runs** forever after |
 
@@ -75,18 +77,21 @@ Workarounds are allowed **only** when the user explicitly requests that specific
 
 | Id | From | Use with |
 |---|---|---|
-| **Node id** | Widget `id` / `definition.nodes` | Live screen |
-| **View UUID** | `ud_views_list` / `savedView.id` | `ud_screen_load_view`, `ud_views_delete` |
-| **Dataset key** | `ud_datasets_upsert` slug (e.g. `orders-live`) | `props.dataset` on Stat/Table/Icon/… |
+| **Node id** | Widget `id` (unique within a view **or** overlay) | `ud_view_patch` / `ud_overlay_patch` widgets upsert/remove |
+| **View UUID** | `ud_view_list` / `ud_view_create` | `ud_view_get` / `patch` / `delete`, `ud_screen_load`, overlay `views[]` |
+| **Overlay UUID** | `ud_overlay_list` / `ud_overlay_create` | `ud_overlay_get` / `patch` / `delete` |
+| **Dataset key** | `ud_datasets_upsert` slug (e.g. `orders-live`) | `props.dataset` on Stat/Table/Icon/Text/Title/Badge/… |
 
 ## Live dashboard workflow (required)
 
 When the user wants data that **stays correct over time**:
 
-1. `ud_datasets_upsert` `{ key, source: { url, jsonPath? } | { dataset, jsonPath? } | { datasets: [..] }, refreshIntervalSec, transform? }`
-2. `ud_datasets_refresh` `{ key }` — check summarized payload (incl. fields added by transform); parent refresh also refreshes dependents
-3. `ud_screen_show` widgets with `props.dataset: key` + `field` / `glyphField` (and `view: { slug, title }` on create)
-4. **Do not** poll or re-fetch yourself — the panel runs `refresh-due` on open and every ~30s
+1. `ud_view_create` `{ slug, title? }` → keep the returned `id` (does **not** change the live panel)
+2. `ud_datasets_upsert` `{ key, source?: { url, jsonPath? } | { dataset, jsonPath? } | { datasets: [..] }, refreshIntervalSec?, transform? }` — **`source` required on create**; on update, omit `source` / `refreshIntervalSec` / `transform` to keep existing (e.g. change transform only)
+3. `ud_datasets_refresh` `{ key }` — check summarized payload (incl. fields added by transform); parent refresh also refreshes dependents
+4. `ud_view_patch` `{ id, widgets: { op: "upsert", widget: { … props.dataset… }, layout? } }` (repeat per widget)
+5. `ud_screen_load` `{ id }` so the panel shows it
+6. **Do not** poll or re-fetch yourself — the panel runs `refresh-due` on open and every ~30s
 
 Derive `key` / `slug` / labels from the user's request — not from canned demos.
 
@@ -102,49 +107,105 @@ Function **body** only — sync `(data) => …` — run in a WASM sandbox after 
 - Multi-parent example: `return { total: data.orders.length + data.returns.length }` when `datasets: ["orders","returns"]`
 - **`Icon.glyph` / `glyphField` must be a real character** (emoji or Nerd Font codepoint). Never invent slug names like `"ok"` / `"warn-icon"` as the glyph — those render as literal text.
 
-## Views
+## Views vs screen
 
-Pass **top-level** `view: { slug, title? }` on `ud_screen_show` (sibling of `widget`) when creating a dashboard. Further shows re-save the active view. Views store IR + layout; **dataset payloads live in the dataset store** and are re-hydrated on load.
+- **View** = saved dashboard. Always pass **`id`** to `ud_view_get` / `patch` / `delete`. Mutate content only with **`ud_view_patch`**.
+- **Screen** = what the panel shows now. `ud_screen_get` (includes `activeViewId` + matching `overlays`), `ud_screen_load` `{ id }`, `ud_screen_clear`.
+- Patching the **active** view write-throughs to the live screen. Patching another view does not change the panel until `ud_screen_load`.
+
+## Overlays (shared chrome)
+
+Overlays stay visible while the carousel / ←→ switches views (only the view body animates).
+
+| `mode` | Behavior | Use for |
+|---|---|---|
+| **`dock`** | Reserves space; **pushes** the view (does not cover it) | News ticker, status bandeau, side rail |
+| **`float`** | Superimposed on top of the shell | Semi-transparent logo, watermark, corner badge |
+
+| Field | Notes |
+|---|---|
+| `anchor` | `top` / `bottom` / `left` / `right` / corners / `center` / `center-left` / `center-right`. **`dock` forbids bare `center`**. |
+| `width` / `height` | Optional px number or `"40%"` / `"100%"`. Omit → content-sized. Dock top/bottom often `height`; left/right often `width`. |
+| `opacity` | 0–1 (default 1). Mainly for `float`. |
+| `order` | Stack order within the same dock edge / float layer (lower first). |
+| `views` | Omit or `[]` = **all views**. Pass view UUIDs to restrict. |
+
+Workflow: `ud_overlay_create` → `ud_overlay_patch` widgets (same ops as views) → overlays matching the active view appear on the panel automatically (no separate “load”).
+
+### `ud_view_patch` widgets ops
+
+| `op` | Required | Effect |
+|---|---|---|
+| `upsert` | `widget` (+ optional `layout`) | Create or replace that widget **id** (full subtree); attach under the view root |
+| `remove` | `id` (widget id) | Delete that widget subtree |
+| `replace_all` | `items: [{ widget, layout? }, …]` | Exact new top-level widget list |
+| `clear` | — | Remove all widgets (empty view) |
+
+Also optional on the same call: `slug`, `title`, `grid: { columns?, visible? }`.
+
+`layout.column` is **1-based**. Do not put placement inside `props`.
 
 | Intent | Do |
 |---|---|
-| Create live dashboard | upsert dataset (+ transform) → refresh → show widgets + `view:` |
-| Add / update widget | `ud_screen_show` with same `id` — **omit `replace` or `replace: false`** (upsert; other widgets stay) |
-| Wipe screen to one widget | `ud_screen_show` **`replace: true`** only — never for style/prop tweaks |
-| Wider grid | `ud_screen_grid` `{ "columns": N }` then place with `column` / `colspan` |
-| Clear screen | `ud_screen_clear` (datasets remain) |
-| Load | `ud_views_list` → `ud_screen_load_view` |
-| Auto-cycle views | `ud_views_carousel` `{ enabled: true, intervalSec?, views?: [id…], transition?: "fade"|"slide"|"scale" }` — omit `views` (or `[]`) for all saved views; `{ enabled: false }` to stop. Panel must be open. |
-| Delete view | `ud_views_delete` — only if user asks |
+| Create new dashboard | `ud_view_create` → datasets → `ud_view_patch` widgets → `ud_screen_load` |
+| Add / update one widget | `ud_view_patch` `{ id, widgets: { op: "upsert", widget, layout? } }` |
+| Remove one widget | `ud_view_patch` `{ id, widgets: { op: "remove", id: "<widget-id>" } }` |
+| Rebuild all widgets | `ud_view_patch` `{ id, widgets: { op: "replace_all", items: […] } }` |
+| Rename view | `ud_view_patch` `{ id, slug?, title? }` |
+| Wider grid | `ud_view_patch` `{ id, grid: { columns: N } }` |
+| Show a view | `ud_view_list` → `ud_screen_load` `{ id }` |
+| Inspect live / active | `ud_screen_get` |
+| Clear panel only | `ud_screen_clear` (views kept) |
+| Auto-cycle | `ud_view_carousel` `{ enabled: true, intervalSec?, views?: [id…], transition? }` |
+| Shared chrome (all views) | `ud_overlay_create` `{ slug, mode, anchor, … }` → `ud_overlay_patch` widgets |
+| Shared chrome (subset) | `ud_overlay_create` / `patch` with `views: [viewUuid, …]` |
+| Delete overlay | `ud_overlay_delete` — only if user asks |
+| Delete view | `ud_view_delete` — only if user asks |
 | Delete dataset | `ud_datasets_delete` — only if user asks |
 
 ## Composition & props
 
-- One `ud_screen_show` = one widget. More widgets / updates: default **`replace: false`** (upsert by `id`).
-- **`replace: true` = scrub the whole screen**, then show only that widget. Do **not** use it to change size, color, text, or placement of an existing widget — same `id` + `replace: false` (or omit `replace`).
+- One `ud_view_patch` widgets upsert = one top-level widget (nested `children` allowed for templates).
+- Style/prop tweaks: same widget `id` + `op: "upsert"` — never `replace_all` / `clear` for that.
 - Size tokens (text): `xs` | `sm` | `md` | `lg` | `xl` | `2xl`
 - **Icon** sizes (dedicated px, same trick as Omarchy weather: raw `pixelSize`, not `Style.font`): `xs`…`6xl` | `hero`
   - `2xl` / `hero` = **64px** (native weather panel hero)
   - `3xl`…`6xl` = 80 / 96 / 128 / 160 — use these next to large Stats
-- **Screen placement** (top-level on `ud_screen_show`, not inside `props`):
+- **Placement** (`widgets.layout` on patch, not inside `props`):
   - `column` — **1-based** start column (`1` … `grid.columns`). Never `0`.
   - `index` — **0-based row** (same value = same horizontal band across columns). Not “add order”.
   - `colspan` — width in columns (default `1`; full-width hero uses all columns).
   - Omit `column` → horizontal-first auto-flow (fills left→right, then wraps).
-- Default grid: **3 columns**. Widen with `ud_screen_grid` `{ "columns": N }` (1–26). This is **not** the IR `Grid` widget (`props.cols`).
+- Default grid: **3 columns**. Widen with `ud_view_patch` `{ grid: { columns: N } }` (1–26). This is **not** the IR `Grid` widget (`props.cols`).
 - Side-by-side on one row: **same `index`**, consecutive `column`s (e.g. icon `column:1,index:1` + stat `column:2,index:1`).
 
 ## Widgets (MVP)
 
-Rendered: `Stack`, `Group`, `Grid`, `Container`, `Panel`, `Card`, `ScrollArea`, `Title`, `Text`, `Marquee`, `Markdown`, `Icon`, `Badge`, `Stat`, `Divider`, `Table`, `HorizontalTiles`, `Chart`.
+Rendered: `Stack`, `Group`, `Grid`, `Container`, `Panel`, `Card`, `ScrollArea`, `Title`, `Text`, `Marquee`, `Markdown`, `Icon`, `Badge`, `Stat`, `Divider`, `Table`, `HorizontalTiles`, `List`, `Timeline`, `Image`, `Button`, `Anchor`, `Chart`, `Video`, `Youtube`.
 
-Placeholder: `Map`, `List`, `Timeline`, `Image`, `Button`. (`Chart` kinds `heatmap` / `treemap` / `radar` are stubs.)
+Placeholder: `Map`. (`Chart` kinds `heatmap` / `treemap` / `radar` are stubs. Button `openDetail` and List `detailKey` are not implemented.)
 
 `Markdown` = short prose / notes only — **not** for live metrics.
 
+`Text` / `Title` / `Badge` = static `text` **or** live `textField` + optional `dataset` (first row / object). Inside `HorizontalTiles`, omit `dataset` on children — the stamped row supplies fields.
+
 `Marquee` = horizontal scrolling ticker. Props: `text` / `textField` (+ optional `dataset`, `separator` to join all rows), `speed` (px/s, default 40), `direction` (`left`|`right`), `gap`, `pauseOnHover` (default true), `onlyIfOverflow`, plus usual text style (`size`, `color`, `weight`, `italic`). Call `ud_widgets_spec` `{ "type": "Marquee" }` for the schema.
 
-`Table` = numeric/text columns (`columns: [{ label, field }, …]`). **Not** for hour→icon strips.
+`Video` = inline media via Qt Multimedia. Props: `src` or `srcField` (+ optional `dataset`), `height` (px) or `size` (`xs`…`2xl`, default `md` → 240px), optional `aspect: "16:9"` (height tracks width when `height` omitted), `fit` (`cover` default = crop to fill; `contain` letterboxes; `stretch`), `autoPlay` (default true), `sound` (default false = muted), `controls` (default true — hover bar with play/pause + mute). Host needs `qt6-multimedia` (FFmpeg backend). HLS (`.m3u8`) may work depending on the stream. Call `ud_widgets_spec` `{ "type": "Video" }` for the schema.
+
+`Youtube` = YouTube watch URL / video id → direct stream via **yt-dlp** (signed URLs refreshed on a timer; also on playback error). **Not** a WebEngine iframe (Quickshell cannot embed Chromium reliably). Props: `src` and/or `videoId` (or `srcField` / `videoIdField` + `dataset`), same `height` / `size` / `aspect` / `fit` / `autoPlay` / `sound` / `controls` as `Video`, optional `resolveIntervalSec` (default 1200, min 300). Host needs `yt-dlp` on `PATH` + `qt6-multimedia`. Prefer `Youtube` for youtube.com / youtu.be; use `Video` for direct file/HLS URLs. Call `ud_widgets_spec` `{ "type": "Youtube" }` for the schema.
+
+`Image` = remote/local image. Props: `src` or `srcField` (+ optional `dataset`), `alt` / `altField`, `height` (px, default 160), `radius` (size token).
+
+`Anchor` = clickable http(s) link. Props: `label` / `labelField`, `href` / `hrefField`, optional `dataset`, `size`. Opens with the system browser.
+
+`List` = card grid/stack from a dataset. Props: `dataset`, `titleField`, optional `subtitleField` / `metaField` / `imageField` / `hrefField`, `layout` (`stack`|`grid`), `cols`, `limit`, optional `size` (`xs`…`2xl`, default `md` — title uses that token; subtitle/meta step down). When `hrefField` resolves to http(s), the **whole card** is clickable (title stays normal text, no underline). Do **not** rely on `detailKey` (unsupported).
+
+`Timeline` = vertical event list. Props: `dataset`, `titleField`, `timeField`, optional `bodyField`.
+
+`Button` = labeled control with `on.click`. Supported actions: `openUrl` `{ url }`, `navigate` `{ viewId }`, `dataset.refresh` `{ dataset }`. **`openDetail` is not supported** — stop if the user needs it.
+
+`Table` = numeric/text columns (`columns: [{ label, field, hrefField? }, …]`). Optional table `size` (`xs`…`2xl`, default `md`). When a column sets `hrefField`, that cell opens the row’s http(s) URL (label still from `field`). **Not** for hour→icon strips.
 
 `HorizontalTiles` = stamp `children[]` once per dataset row into a horizontal band/grid. Prefer for forecasts / chip rows / hourly glyphs (`cols`, `limit`; default `layout: "grid"`). Template fields (`glyphField` / `textField` / `field`) bind to **each row** (no per-child `dataset` needed). (`Repeat` is a legacy alias.)
 
@@ -152,18 +213,37 @@ Placeholder: `Map`, `List`, `Timeline`, `Image`, `Button`. (`Chart` kinds `heatm
 
 ### Patterns (domain-agnostic)
 
-**Live bind** — after upsert + refresh:
+**Live bind** — after `ud_view_create` + dataset upsert/refresh (`id` = view UUID):
 
 ```json
 {
-  "widget": {
-    "id": "metric-a",
-    "type": "Stat",
-    "props": { "label": "…", "dataset": "<key>", "field": "<field>" }
-  },
-  "column": 1,
-  "index": 0,
-  "view": { "slug": "<slug>", "title": "<title>" }
+  "id": "<view-uuid>",
+  "widgets": {
+    "op": "upsert",
+    "widget": {
+      "id": "metric-a",
+      "type": "Stat",
+      "props": { "label": "…", "dataset": "<key>", "field": "<field>" }
+    },
+    "layout": { "column": 1, "index": 0 }
+  }
+}
+```
+
+**Live text line** (no Stat chrome) — `Text` / `Title` / `Badge` with `dataset` + `textField`:
+
+```json
+{
+  "id": "<view-uuid>",
+  "widgets": {
+    "op": "upsert",
+    "widget": {
+      "id": "updated-at",
+      "type": "Text",
+      "props": { "dataset": "<key>", "textField": "time", "size": "sm", "color": "muted" }
+    },
+    "layout": { "column": 1, "index": 2 }
+  }
 }
 ```
 
@@ -171,22 +251,83 @@ Placeholder: `Map`, `List`, `Timeline`, `Image`, `Button`. (`Chart` kinds `heatm
 
 ```json
 {
-  "widget": {
-    "id": "headlines",
-    "type": "Marquee",
-    "props": {
-      "dataset": "<key>",
-      "textField": "title",
-      "separator": "  ·  ",
-      "speed": 50,
-      "size": "md",
-      "color": "muted"
-    }
-  },
-  "column": 1,
-  "colspan": 3,
-  "index": 0,
-  "view": { "slug": "<slug>", "title": "<title>" }
+  "id": "<view-uuid>",
+  "widgets": {
+    "op": "upsert",
+    "widget": {
+      "id": "headlines",
+      "type": "Marquee",
+      "props": {
+        "dataset": "<key>",
+        "textField": "title",
+        "separator": "  ·  ",
+        "speed": 50,
+        "size": "md",
+        "color": "muted"
+      }
+    },
+    "layout": { "column": 1, "colspan": 3, "index": 0 }
+  }
+}
+```
+
+**Dock overlay bandeau** (pushes the view; survives carousel) — after views exist:
+
+```json
+{
+  "slug": "news-banner",
+  "mode": "dock",
+  "anchor": "top",
+  "height": 48,
+  "views": ["<view-uuid-a>", "<view-uuid-b>"]
+}
+```
+
+Then `ud_overlay_patch` widgets upsert a `Marquee` (same widget shape as views; `id` = overlay UUID).
+
+**Float watermark** — `mode: "float"`, `anchor: "bottom-right"`, `opacity: 0.35`, optional `width`/`height`.
+
+**Video** — URL (file / http / often HLS `.m3u8`); muted autoplay by default:
+
+```json
+{
+  "id": "<view-uuid>",
+  "widgets": {
+    "op": "upsert",
+    "widget": {
+      "id": "cam",
+      "type": "Video",
+      "props": {
+        "src": "https://example.com/stream.m3u8",
+        "size": "lg",
+        "autoPlay": true,
+        "sound": false
+      }
+    },
+    "layout": { "column": 1, "colspan": 3, "index": 0 }
+  }
+}
+```
+
+**Youtube** — watch URL or video id (needs `yt-dlp`); muted autoplay; stream re-resolved every ~20 min:
+
+```json
+{
+  "id": "<view-uuid>",
+  "widgets": {
+    "op": "upsert",
+    "widget": {
+      "id": "yt-bloomberg",
+      "type": "Youtube",
+      "props": {
+        "src": "https://www.youtube.com/watch?v=QB5BNdBFujE",
+        "size": "lg",
+        "autoPlay": true,
+        "sound": false
+      }
+    },
+    "layout": { "column": 1, "colspan": 2, "index": 0 }
+  }
 }
 ```
 
@@ -196,48 +337,96 @@ Placeholder: `Map`, `List`, `Timeline`, `Image`, `Button`. (`Chart` kinds `heatm
 
 ```json
 {
-  "widget": {
-    "id": "hours",
-    "type": "HorizontalTiles",
-    "props": { "dataset": "<key>", "layout": "grid", "cols": 6, "gap": "md", "limit": 12 },
-    "children": [
-      {
-        "id": "hours-cell",
-        "type": "Stack",
-        "props": { "gap": "xs" },
-        "children": [
-          { "id": "hours-icon", "type": "Icon", "props": { "glyphField": "glyph", "size": "xl", "align": "center" } },
-          { "id": "hours-h", "type": "Text", "props": { "textField": "h", "size": "sm", "align": "center", "color": "muted" } }
-        ]
-      }
-    ]
-  },
-  "column": 1,
-  "colspan": 3,
-  "index": 2,
-  "replace": false
+  "id": "<view-uuid>",
+  "widgets": {
+    "op": "upsert",
+    "widget": {
+      "id": "hours",
+      "type": "HorizontalTiles",
+      "props": { "dataset": "<key>", "layout": "grid", "cols": 6, "gap": "md", "limit": 12 },
+      "children": [
+        {
+          "id": "hours-cell",
+          "type": "Stack",
+          "props": { "gap": "xs" },
+          "children": [
+            { "id": "hours-icon", "type": "Icon", "props": { "glyphField": "glyph", "size": "xl", "align": "center" } },
+            { "id": "hours-h", "type": "Text", "props": { "textField": "h", "size": "sm", "align": "center", "color": "muted" } }
+          ]
+        }
+      ]
+    },
+    "layout": { "column": 1, "colspan": 3, "index": 2 }
+  }
 }
 ```
 
-**Table** — dense numbers only (not icon strips):
+**Table** — dense numbers / text (not icon strips). Optional `size`; optional per-column `hrefField` for clickable cells:
 
 ```json
 {
-  "widget": {
-    "id": "rows",
-    "type": "Table",
-    "props": {
-      "dataset": "<key>",
-      "columns": [
-        { "label": "…", "field": "<a>" },
-        { "label": "…", "field": "<b>" }
-      ]
-    }
-  },
-  "column": 1,
-  "colspan": 3,
-  "index": 2,
-  "replace": false
+  "id": "<view-uuid>",
+  "widgets": {
+    "op": "upsert",
+    "widget": {
+      "id": "rows",
+      "type": "Table",
+      "props": {
+        "dataset": "<key>",
+        "size": "sm",
+        "columns": [
+          { "label": "Title", "field": "title", "hrefField": "url" },
+          { "label": "…", "field": "<b>" }
+        ]
+      }
+    },
+    "layout": { "column": 1, "colspan": 3, "index": 2 }
+  }
+}
+```
+
+**List** — small clickable cards (prefer over Table when the user wants a card layout):
+
+```json
+{
+  "id": "<view-uuid>",
+  "widgets": {
+    "op": "upsert",
+    "widget": {
+      "id": "stories",
+      "type": "List",
+      "props": {
+        "dataset": "<key>",
+        "layout": "grid",
+        "cols": 2,
+        "limit": 20,
+        "size": "lg",
+        "titleField": "title",
+        "subtitleField": "score",
+        "metaField": "domain",
+        "hrefField": "url"
+      }
+    },
+    "layout": { "column": 1, "colspan": 3, "index": 1 }
+  }
+}
+```
+
+**Button** — `on.click` (not inside `props`):
+
+```json
+{
+  "id": "<view-uuid>",
+  "widgets": {
+    "op": "upsert",
+    "widget": {
+      "id": "refresh-btn",
+      "type": "Button",
+      "props": { "label": "Refresh", "variant": "filled" },
+      "on": { "click": { "action": "dataset.refresh", "dataset": "<key>" } }
+    },
+    "layout": { "column": 1, "index": 0 }
+  }
 }
 ```
 
@@ -245,21 +434,22 @@ Placeholder: `Map`, `List`, `Timeline`, `Image`, `Button`. (`Chart` kinds `heatm
 
 ```json
 {
-  "widget": {
-    "id": "trend",
-    "type": "Chart",
-    "props": {
-      "kind": "line",
-      "dataset": "<key>",
-      "x": "t",
-      "y": ["value"],
-      "height": 280
-    }
-  },
-  "column": 1,
-  "colspan": 3,
-  "index": 3,
-  "replace": false
+  "id": "<view-uuid>",
+  "widgets": {
+    "op": "upsert",
+    "widget": {
+      "id": "trend",
+      "type": "Chart",
+      "props": {
+        "kind": "line",
+        "dataset": "<key>",
+        "x": "t",
+        "y": ["value"],
+        "height": 280
+      }
+    },
+    "layout": { "column": 1, "colspan": 3, "index": 3 }
+  }
 }
 ```
 
@@ -267,13 +457,16 @@ Placeholder: `Map`, `List`, `Timeline`, `Image`, `Button`. (`Chart` kinds `heatm
 
 ```json
 {
-  "widget": {
-    "id": "note",
-    "type": "Stat",
-    "props": { "label": "…", "field": "value" },
-    "data": { "value": 0 }
-  },
-  "view": { "slug": "<slug>", "title": "<title>" }
+  "id": "<view-uuid>",
+  "widgets": {
+    "op": "upsert",
+    "widget": {
+      "id": "note",
+      "type": "Stat",
+      "props": { "label": "…", "field": "value" },
+      "data": { "value": 0 }
+    }
+  }
 }
 ```
 

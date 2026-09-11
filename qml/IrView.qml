@@ -7,6 +7,8 @@ Item {
   id: root
   property var screen: null
   property var bar: null
+  /** Panel root for Button click actions. */
+  property var host: null
 
   readonly property var definition: screen && screen.definition ? screen.definition : null
   readonly property var colors: ({
@@ -36,6 +38,7 @@ Item {
     loader.item.nodeId = cell.id
     loader.item.screen = root.screen
     loader.item.bar = root.bar
+    loader.item.host = root.host
     loader.item.colors = root.colors
   }
 
@@ -89,6 +92,7 @@ Item {
           target: root
           function onScreenChanged() { root.syncCell(cellLoader, cellWrap.modelData, cellWrap.cellWidth) }
           function onBarChanged() { root.syncCell(cellLoader, cellWrap.modelData, cellWrap.cellWidth) }
+          function onHostChanged() { root.syncCell(cellLoader, cellWrap.modelData, cellWrap.cellWidth) }
         }
       }
     }
@@ -109,6 +113,7 @@ Item {
       item.nodeId = root.definition.root
       item.screen = root.screen
       item.bar = root.bar
+      item.host = root.host
       item.colors = root.colors
     }
 
@@ -118,6 +123,7 @@ Item {
 
   onScreenChanged: if (rootLoader.item) rootLoader.sync()
   onBarChanged: if (rootLoader.item) rootLoader.sync()
+  onHostChanged: if (rootLoader.item) rootLoader.sync()
   onWidthChanged: if (rootLoader.item) rootLoader.sync()
 
   Binding {

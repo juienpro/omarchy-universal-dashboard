@@ -5898,6 +5898,8 @@ var titleNode = external_exports.object({
   props: propsObject({
     text: external_exports.string().optional(),
     textField: external_exports.string().optional(),
+    /** With `textField`: read from this dataset (first row / object). Inside HorizontalTiles, omit — row comes from parent. */
+    dataset: datasetKey.optional(),
     order: external_exports.number().int().min(1).max(6).default(2),
     size: sizeToken.optional(),
     ...textStyleProps
@@ -5908,6 +5910,8 @@ var textNode = external_exports.object({
   props: propsObject({
     text: external_exports.string().optional(),
     textField: external_exports.string().optional(),
+    /** With `textField`: read from this dataset (first row / object). Inside HorizontalTiles, omit — row comes from parent. */
+    dataset: datasetKey.optional(),
     c: external_exports.enum(["dimmed", "default"]).optional(),
     size: sizeToken.optional(),
     ...textStyleProps
@@ -5947,10 +5951,72 @@ var imageNode = external_exports.object({
   props: propsObject({
     src: external_exports.string().optional(),
     srcField: external_exports.string().optional(),
+    /** With `srcField`: read from this dataset (first row). Inside HorizontalTiles / List, omit — row supplies fields. */
+    dataset: datasetKey.optional(),
     alt: external_exports.string().default(""),
     altField: external_exports.string().optional(),
     height: external_exports.number().int().min(40).max(2e3).optional(),
     radius: sizeToken.optional()
+  })
+});
+var videoFit = external_exports.enum(["contain", "cover", "stretch"]);
+var videoNode = external_exports.object({
+  type: external_exports.literal("Video"),
+  props: propsObject({
+    src: external_exports.string().optional(),
+    srcField: external_exports.string().optional(),
+    dataset: datasetKey.optional(),
+    /**
+     * Pixel height (80–1200). Wins over `size` when both set.
+     * Default 240 when neither `height` nor `size` is set.
+     */
+    height: external_exports.number().int().min(80).max(1200).optional(),
+    /** Preset height when `height` omitted: xs=120 … 2xl=480. Default md. */
+    size: sizeToken.optional(),
+    /**
+     * When set to `16:9` (and `height` omitted), widget height tracks width
+     * so the box matches typical video aspect (less empty chrome).
+     */
+    aspect: external_exports.enum(["16:9"]).optional(),
+    /**
+     * How the frame fills the widget box. Default `cover` (crop to fill — no
+     * letterbox). `contain` letterboxes; `stretch` ignores aspect.
+     */
+    fit: videoFit.optional(),
+    /** Start playback when the source is ready. Default true. */
+    autoPlay: external_exports.boolean().optional(),
+    /** Unmute by default. Default false (muted). Hover chrome can still toggle. */
+    sound: external_exports.boolean().optional(),
+    /** Show play/mute hover chrome. Default true. */
+    controls: external_exports.boolean().optional()
+  })
+});
+var youtubeNode = external_exports.object({
+  type: external_exports.literal("Youtube"),
+  props: propsObject({
+    /** Watch / youtu.be / embed URL, or bare 11-char video id. */
+    src: external_exports.string().optional(),
+    /** Explicit 11-char id (wins over parsing `src` when both set). */
+    videoId: external_exports.string().min(6).max(20).optional(),
+    srcField: external_exports.string().optional(),
+    videoIdField: external_exports.string().optional(),
+    dataset: datasetKey.optional(),
+    height: external_exports.number().int().min(80).max(1200).optional(),
+    size: sizeToken.optional(),
+    /** Same as Video — default `cover` (fill box, crop edges). */
+    fit: videoFit.optional(),
+    /** When `16:9` and `height` omitted, height tracks width. */
+    aspect: external_exports.enum(["16:9"]).optional(),
+    autoPlay: external_exports.boolean().optional(),
+    /** Unmute by default. Default false. Hover chrome can toggle mute. */
+    sound: external_exports.boolean().optional(),
+    /** Show play/mute hover chrome. Default true. */
+    controls: external_exports.boolean().optional(),
+    /**
+     * How often to re-resolve the signed stream (seconds). Default 1200 (20 min).
+     * Min 300. Also re-resolves on playback error.
+     */
+    resolveIntervalSec: external_exports.number().int().min(300).max(86400).optional()
   })
 });
 var badgeNode = external_exports.object({
@@ -5958,6 +6024,8 @@ var badgeNode = external_exports.object({
   props: propsObject({
     text: external_exports.string().optional(),
     textField: external_exports.string().optional(),
+    /** With `textField`: read from this dataset (first row / object). Inside HorizontalTiles, omit — row comes from parent. */
+    dataset: datasetKey.optional(),
     color: external_exports.string().optional()
   })
 });
@@ -6017,7 +6085,9 @@ var listNode = external_exports.object({
     hrefField: external_exports.string().optional(),
     /** When set, clicks open this internal detail (on-demand) using hrefField as the item URL. */
     detailKey: external_exports.string().min(1).max(128).optional(),
-    limit: external_exports.number().int().min(1).max(200).optional()
+    limit: external_exports.number().int().min(1).max(200).optional(),
+    /** Title text size (`xs`…`2xl`). Default `md`. Subtitle/meta step down. */
+    size: sizeToken.optional()
   })
 });
 var timelineNode = external_exports.object({
@@ -6057,7 +6127,12 @@ var repeatNode = external_exports.object({
 var tableColumn = propsObject({
   field: external_exports.string().min(1),
   label: external_exports.string().min(1),
-  width: external_exports.number().int().min(40).max(800).optional()
+  width: external_exports.number().int().min(40).max(800).optional(),
+  /**
+   * When set, cell text is clickable and opens this row field as a URL
+   * (http/https only). Display text still comes from `field`.
+   */
+  hrefField: external_exports.string().min(1).optional()
 });
 var tableNode = external_exports.object({
   type: external_exports.literal("Table"),
@@ -6065,7 +6140,9 @@ var tableNode = external_exports.object({
     dataset: datasetKey,
     columns: external_exports.array(tableColumn).min(1),
     pageSize: external_exports.number().int().min(5).max(100).default(20),
-    sortable: external_exports.boolean().default(true)
+    sortable: external_exports.boolean().default(true),
+    /** Cell text size (`xs`…`2xl`). Default `md` (= body). Headers one step smaller. */
+    size: sizeToken.optional()
   })
 });
 var chartNode = external_exports.object({
@@ -6107,7 +6184,10 @@ var anchorNode = external_exports.object({
     label: external_exports.string().optional(),
     labelField: external_exports.string().optional(),
     href: external_exports.string().optional(),
-    hrefField: external_exports.string().optional()
+    hrefField: external_exports.string().optional(),
+    /** With `labelField` / `hrefField`: read from this dataset (first row). Inside HorizontalTiles, omit. */
+    dataset: datasetKey.optional(),
+    size: sizeToken.optional()
   })
 });
 var nodeBody = external_exports.discriminatedUnion("type", [
@@ -6123,6 +6203,8 @@ var nodeBody = external_exports.discriminatedUnion("type", [
   marqueeNode,
   markdownNode,
   imageNode,
+  videoNode,
+  youtubeNode,
   badgeNode,
   iconNode,
   statNode,
@@ -7442,7 +7524,15 @@ var RENDERED_WIDGET_TYPES = [
   "Stat",
   "Divider",
   "Table",
-  "HorizontalTiles"
+  "HorizontalTiles",
+  "List",
+  "Timeline",
+  "Image",
+  "Button",
+  "Anchor",
+  "Chart",
+  "Video",
+  "Youtube"
 ];
 function nodeSchemaForType(type) {
   const opt = nodeBody.options.find((o) => o.shape.type.value === type);
@@ -7475,7 +7565,7 @@ function widgetsSpec(filterType) {
   return {
     widgets,
     placement: {
-      note: "Top-level on ud_screen_show (sibling of widget), not inside props.",
+      note: "On ud_view_patch widgets.layout (sibling of widget), not inside props.",
       column: "1-based start column (1..grid.columns)",
       index: "0-based row band (same index = same horizontal row)",
       colspan: "width in columns (default 1)"
@@ -7747,6 +7837,67 @@ function defaultPlacement(grid) {
   return heroPlacement(grid);
 }
 
+// ../packages/ir/src/overlay.ts
+var OVERLAY_MODES = ["float", "dock"];
+var OVERLAY_ANCHORS = [
+  "top",
+  "bottom",
+  "left",
+  "right",
+  "top-left",
+  "top-right",
+  "bottom-left",
+  "bottom-right",
+  "center",
+  "center-left",
+  "center-right"
+];
+var overlaySize = external_exports.union([
+  external_exports.number().positive().max(4e3),
+  external_exports.string().regex(/^\d+(\.\d+)?%$/, 'Expected a percentage like "100%" or "40%"')
+]);
+var overlayChrome = external_exports.object({
+  mode: external_exports.enum(OVERLAY_MODES),
+  anchor: external_exports.enum(OVERLAY_ANCHORS),
+  width: overlaySize.optional(),
+  height: overlaySize.optional(),
+  /** 0–1; mainly useful for `float` (watermarks). */
+  opacity: external_exports.number().min(0).max(1).default(1),
+  /** Stacking order within the same dock edge / float layer (lower = earlier / further back). */
+  order: external_exports.number().int().min(0).max(999).default(0)
+}).superRefine((chrome, ctx) => {
+  if (chrome.mode === "dock" && chrome.anchor === "center") {
+    ctx.addIssue({
+      code: external_exports.ZodIssueCode.custom,
+      message: 'Dock overlays cannot use anchor "center" (nothing to push against). Use float, or an edge anchor.',
+      path: ["anchor"]
+    });
+  }
+});
+function overlayDockEdge(anchor) {
+  switch (anchor) {
+    case "top":
+    case "top-left":
+    case "top-right":
+      return "top";
+    case "bottom":
+    case "bottom-left":
+    case "bottom-right":
+      return "bottom";
+    case "left":
+    case "center-left":
+      return "left";
+    case "right":
+    case "center-right":
+      return "right";
+    case "center":
+      return null;
+  }
+}
+function normalizeOverlayChrome(input) {
+  return overlayChrome.parse(input);
+}
+
 // src/datasets.ts
 import { readFileSync as readFileSync2, existsSync, unlinkSync, readdirSync } from "node:fs";
 
@@ -7772,6 +7923,12 @@ function carouselPath() {
 function viewFilePath(id) {
   return join(stateDir(), "views", `${id}.json`);
 }
+function overlaysIndexPath() {
+  return join(stateDir(), "overlays.json");
+}
+function overlayFilePath(id) {
+  return join(stateDir(), "overlays", `${id}.json`);
+}
 function datasetsDir() {
   return join(stateDir(), "datasets");
 }
@@ -7783,6 +7940,7 @@ function datasetFilePath(key) {
 }
 function ensureDirs() {
   mkdirSync(join(stateDir(), "views"), { recursive: true, mode: 448 });
+  mkdirSync(join(stateDir(), "overlays"), { recursive: true, mode: 448 });
   mkdirSync(datasetsDir(), { recursive: true, mode: 448 });
 }
 function writeAtomic(path, text2) {
@@ -8166,10 +8324,14 @@ function topoSortKeys(keys) {
 function upsertDataset(input) {
   const key = String(input.key || "").trim().toLowerCase();
   assertPersistedKey(key);
-  const source = parseSource(input.source);
-  assertAcyclicDerived(key, source);
-  const refreshIntervalSec = Math.max(MIN_INTERVAL, Math.floor(input.refreshIntervalSec ?? 600));
   const existing = getDataset(key);
+  const hasSource = input.source !== void 0 && input.source !== null;
+  if (!existing && !hasSource) {
+    throw new Error("source is required when creating a dataset");
+  }
+  const source = hasSource ? parseSource(input.source) : existing.source;
+  assertAcyclicDerived(key, source);
+  const refreshIntervalSec = input.refreshIntervalSec !== void 0 ? Math.max(MIN_INTERVAL, Math.floor(input.refreshIntervalSec)) : existing?.refreshIntervalSec ?? 600;
   const now = nowIso();
   let transform = existing?.transform;
   if (input.transform === null) transform = void 0;
@@ -8418,26 +8580,45 @@ function emptyScreen() {
     inlineData: {},
     layout: defaultLayout(),
     activeViewId: null,
+    overlays: [],
     updatedAt: nowIso()
   };
 }
-function boundDatasetKeys(definition) {
-  if (!definition) return [];
-  const keys = new Set(definition.datasets ?? []);
+function addBoundKeysFromDefinition(definition, keys) {
+  if (!definition) return;
+  for (const k of definition.datasets ?? []) keys.add(k);
   for (const node of Object.values(definition.nodes)) {
     const props = node.props;
     const ds = props && typeof props.dataset === "string" ? props.dataset : null;
     if (ds) keys.add(ds);
   }
+}
+function boundDatasetKeys(definition, overlays = []) {
+  const keys = /* @__PURE__ */ new Set();
+  addBoundKeysFromDefinition(definition, keys);
+  for (const overlay of overlays) addBoundKeysFromDefinition(overlay.definition, keys);
   return [...keys];
 }
+function matchingOverlays(activeViewId) {
+  const all = listOverlays().map((meta) => getOverlay(meta.id)).filter((o) => !!o);
+  const matched = all.filter((o) => {
+    if (o.viewIds === null) return true;
+    if (!activeViewId) return false;
+    return o.viewIds.includes(activeViewId);
+  });
+  return matched.sort((a, b) => a.order - b.order || a.slug.localeCompare(b.slug));
+}
+function withMatchedOverlays(state) {
+  return { ...state, overlays: matchingOverlays(state.activeViewId) };
+}
 function hydrateScreenFromDatasets(state) {
+  const withOverlays = withMatchedOverlays(state);
   const ephemeral = {};
-  for (const [k, v] of Object.entries(state.inlineData)) {
+  for (const [k, v] of Object.entries(withOverlays.inlineData)) {
     if (isEphemeralDatasetKey(k)) ephemeral[k] = v;
   }
-  const cached = cacheForKeys(boundDatasetKeys(state.definition));
-  return { ...state, inlineData: { ...ephemeral, ...cached } };
+  const cached = cacheForKeys(boundDatasetKeys(withOverlays.definition, withOverlays.overlays));
+  return { ...withOverlays, inlineData: { ...ephemeral, ...cached } };
 }
 function getScreen() {
   ensureDirs();
@@ -8449,6 +8630,7 @@ function getScreen() {
       inlineData: raw.inlineData ?? {},
       layout: normalizeScreenLayout(raw.layout ?? defaultLayout()),
       activeViewId: raw.activeViewId ?? null,
+      overlays: [],
       updatedAt: raw.updatedAt ?? nowIso()
     };
     return hydrateScreenFromDatasets(state);
@@ -8461,6 +8643,9 @@ function persistScreen(state) {
   const next = { ...hydrated, updatedAt: nowIso() };
   writeAtomic(screenPath(), JSON.stringify(next, null, 2) + "\n");
   return next;
+}
+function syncScreenOverlays() {
+  return persistScreen(getScreen());
 }
 function clearScreen() {
   const prev = getScreen();
@@ -8491,6 +8676,9 @@ function buildNode(spec, childIds = []) {
   };
   if (layoutTypes.has(spec.type) || childIds.length > 0) {
     base.children = childIds;
+  }
+  if (spec.on !== void 0) {
+    base.on = spec.on;
   }
   return irNode.parse(base);
 }
@@ -8542,6 +8730,9 @@ function collectBoundDatasets(nodes, inlineData, existing = []) {
   for (const node of Object.values(nodes)) {
     const ds = collectDatasetFromProps(node.props);
     if (ds) bound.add(ds);
+    if (node.type === "Button" && node.on?.click?.action === "dataset.refresh") {
+      bound.add(node.on.click.dataset);
+    }
   }
   for (const key of Object.keys(inlineData)) {
     if (isEphemeralDatasetKey(key) || isPersistedDatasetKey(key)) bound.add(key);
@@ -8554,92 +8745,51 @@ function parseScreenDefinition(partial, inlineData) {
     datasets: collectBoundDatasets(partial.nodes, inlineData, partial.datasets ?? [])
   });
 }
-function showOnScreen(input) {
-  const state = getScreen();
-  const { inlineData, datasetKey: datasetKey2 } = applyInlineData(state.inlineData, input.widget);
-  const props = { ...input.widget.props ?? {} };
-  if (datasetKey2 && !props.dataset) props.dataset = datasetKey2;
+function emptyDefinition(title) {
+  return parseScreenDefinition(
+    {
+      irVersion: 1,
+      title,
+      root: "screen-root",
+      nodes: {
+        "screen-root": { type: "Stack", props: { gap: "md" }, children: [] }
+      }
+    },
+    {}
+  );
+}
+function normalizeSlug(raw) {
+  const slug = raw.trim().toLowerCase();
+  if (!/^[a-z][a-z0-9-]*$/.test(slug)) throw new Error("Invalid slug");
+  return slug;
+}
+function prepareWidget(inlineData, widget) {
+  const applied = applyInlineData(inlineData, widget);
+  const props = { ...widget.props ?? {} };
+  if (applied.datasetKey && !props.dataset) props.dataset = applied.datasetKey;
   const boundKey = typeof props.dataset === "string" ? props.dataset : null;
   if (boundKey && isPersistedDatasetKey(boundKey) && !getDataset(boundKey)) {
     throw new Error(
       `Dataset "${boundKey}" not found. Call ud_datasets_upsert (+ ud_datasets_refresh) before binding Stat/Table/HorizontalTiles.`
     );
   }
-  if ((input.widget.type === "HorizontalTiles" || input.widget.type === "Repeat") && !(input.widget.children && input.widget.children.length > 0)) {
+  if ((widget.type === "HorizontalTiles" || widget.type === "Repeat") && !(widget.children && widget.children.length > 0)) {
     throw new Error(
-      `HorizontalTiles "${input.widget.id}" needs children[] (template stamped per dataset row). Example: Stack with Icon+Text inside.`
+      `HorizontalTiles "${widget.id}" needs children[] (template stamped per dataset row). Example: Stack with Icon+Text inside.`
     );
   }
-  const treeNodes = flattenWidgetTree({ ...input.widget, props });
-  const rootKids = state.definition && !input.replace ? "children" in state.definition.nodes[state.definition.root] ? state.definition.nodes[state.definition.root].children : [] : [];
-  const placement = resolveShowPlacement(
-    state.layout.grid,
-    {
-      column: input.column,
-      index: input.index,
-      colspan: input.colspan,
-      align: input.align
-    },
-    { isFirst: !state.definition || !!input.replace || rootKids.length === 0 }
-  );
-  if (!state.definition || input.replace) {
-    const definition2 = parseScreenDefinition(
-      {
-        irVersion: 1,
-        title: "Screen",
-        root: "screen-root",
-        nodes: {
-          "screen-root": { type: "Stack", props: { gap: "md" }, children: [input.widget.id] },
-          ...treeNodes
-        }
-      },
-      inlineData
-    );
-    return persistScreen({
-      definition: definition2,
-      inlineData,
-      activeViewId: null,
-      layout: normalizeScreenLayout({
-        grid: state.layout.grid,
-        placements: { [input.widget.id]: placement },
-        themeId: state.layout.themeId
-      }),
-      updatedAt: state.updatedAt
-    });
+  if (widget.id === "screen-root") {
+    throw new Error('Widget id "screen-root" is reserved');
   }
-  const root = state.definition.nodes[state.definition.root];
-  if (!root || !("children" in root)) {
-    throw new Error("Screen root cannot accept children");
-  }
-  const drop = state.definition.nodes[input.widget.id] ? collectSubtreeIds(state.definition.nodes, input.widget.id) : /* @__PURE__ */ new Set();
-  const nodes = {};
-  for (const [id, n] of Object.entries(state.definition.nodes)) {
-    if (!drop.has(id)) nodes[id] = n;
-  }
-  Object.assign(nodes, treeNodes);
-  const children = root.children.includes(input.widget.id) ? root.children : [...root.children, input.widget.id];
-  nodes[state.definition.root] = { ...root, children };
-  const definition = parseScreenDefinition({ ...state.definition, nodes }, inlineData);
-  return persistScreen({
-    definition,
-    inlineData,
-    activeViewId: state.activeViewId,
-    layout: normalizeScreenLayout({
-      grid: state.layout.grid,
-      placements: { ...state.layout.placements, [input.widget.id]: placement },
-      themeId: state.layout.themeId
-    }),
-    updatedAt: state.updatedAt
-  });
+  return { widget: { ...widget, props }, inlineData: applied.inlineData };
 }
-function configureScreenGrid(input) {
-  const state = getScreen();
+function applyGridToLayout(layout, gridInput) {
   const grid = normalizeGrid({
-    columns: input.columns ?? state.layout.grid.columns,
-    visible: input.visible ?? state.layout.grid.visible
+    columns: gridInput.columns ?? layout.grid.columns,
+    visible: gridInput.visible ?? layout.grid.visible
   });
   const placements = {};
-  for (const [id, p] of Object.entries(state.layout.placements)) {
+  for (const [id, p] of Object.entries(layout.placements)) {
     try {
       assertPlacement(grid.columns, p, id);
       const colspan = Math.min(grid.columns, Math.max(1, p.colspan ?? 1));
@@ -8652,10 +8802,249 @@ function configureScreenGrid(input) {
       placements[id] = defaultPlacement(grid);
     }
   }
-  return persistScreen({
-    ...state,
-    layout: normalizeScreenLayout({ grid, placements, themeId: state.layout.themeId })
+  return normalizeScreenLayout({ grid, placements, themeId: layout.themeId });
+}
+function upsertWidgetIntoDoc(doc, widgetIn, layoutIn) {
+  const { widget, inlineData } = prepareWidget(doc.inlineData, widgetIn);
+  const treeNodes = flattenWidgetTree(widget);
+  const root = doc.definition.nodes[doc.definition.root];
+  if (!root || !("children" in root)) {
+    throw new Error("View root cannot accept children");
+  }
+  const drop = doc.definition.nodes[widget.id] ? collectSubtreeIds(doc.definition.nodes, widget.id) : /* @__PURE__ */ new Set();
+  const placement = resolveShowPlacement(
+    doc.layout.grid,
+    {
+      column: layoutIn?.column,
+      index: layoutIn?.index,
+      colspan: layoutIn?.colspan,
+      align: layoutIn?.align
+    },
+    { isFirst: root.children.length === 0 && !doc.definition.nodes[widget.id] }
+  );
+  const nodes = {};
+  for (const [id, n] of Object.entries(doc.definition.nodes)) {
+    if (!drop.has(id)) nodes[id] = n;
+  }
+  Object.assign(nodes, treeNodes);
+  for (const [id, n] of Object.entries(nodes)) {
+    if (id === doc.definition.root || !("children" in n) || !Array.isArray(n.children)) continue;
+    if (!n.children.includes(widget.id)) continue;
+    nodes[id] = { ...n, children: n.children.filter((c) => c !== widget.id) };
+  }
+  const rootNow = nodes[doc.definition.root];
+  const kept = rootNow.children.filter((c) => c === widget.id || !drop.has(c));
+  nodes[doc.definition.root] = {
+    ...rootNow,
+    children: kept.includes(widget.id) ? kept : [...kept, widget.id]
+  };
+  const definition = parseScreenDefinition({ ...doc.definition, nodes }, inlineData);
+  const placements = { ...doc.layout.placements };
+  for (const id of drop) delete placements[id];
+  placements[widget.id] = placement;
+  return {
+    definition,
+    inlineData,
+    layout: normalizeScreenLayout({
+      grid: doc.layout.grid,
+      placements,
+      themeId: doc.layout.themeId
+    })
+  };
+}
+function removeWidgetFromDoc(doc, widgetId) {
+  if (widgetId === doc.definition.root) {
+    throw new Error("Cannot remove the view root");
+  }
+  if (!doc.definition.nodes[widgetId]) {
+    throw new Error(`Widget not found: ${widgetId}`);
+  }
+  const drop = collectSubtreeIds(doc.definition.nodes, widgetId);
+  const nodes = {};
+  for (const [id, n] of Object.entries(doc.definition.nodes)) {
+    if (drop.has(id)) continue;
+    if ("children" in n && Array.isArray(n.children)) {
+      nodes[id] = { ...n, children: n.children.filter((c) => !drop.has(c)) };
+    } else {
+      nodes[id] = n;
+    }
+  }
+  const placements = { ...doc.layout.placements };
+  for (const id of drop) delete placements[id];
+  const definition = parseScreenDefinition({ ...doc.definition, nodes }, doc.inlineData);
+  return {
+    definition,
+    inlineData: doc.inlineData,
+    layout: normalizeScreenLayout({
+      grid: doc.layout.grid,
+      placements,
+      themeId: doc.layout.themeId
+    })
+  };
+}
+function replaceAllWidgetsInDoc(doc, items) {
+  let inlineData = doc.inlineData;
+  const treeNodes = {};
+  const childIds = [];
+  const placements = {};
+  const seen = /* @__PURE__ */ new Set();
+  for (let i = 0; i < items.length; i++) {
+    const item = items[i];
+    const prepared = prepareWidget(inlineData, item.widget);
+    inlineData = prepared.inlineData;
+    if (seen.has(prepared.widget.id)) {
+      throw new Error(`Duplicate widget id in replace_all: ${prepared.widget.id}`);
+    }
+    seen.add(prepared.widget.id);
+    Object.assign(treeNodes, flattenWidgetTree(prepared.widget));
+    childIds.push(prepared.widget.id);
+    placements[prepared.widget.id] = resolveShowPlacement(
+      doc.layout.grid,
+      {
+        column: item.layout?.column,
+        index: item.layout?.index,
+        colspan: item.layout?.colspan,
+        align: item.layout?.align
+      },
+      { isFirst: i === 0 }
+    );
+  }
+  const definition = parseScreenDefinition(
+    {
+      irVersion: 1,
+      title: doc.definition.title,
+      root: "screen-root",
+      nodes: {
+        "screen-root": { type: "Stack", props: { gap: "md" }, children: childIds },
+        ...treeNodes
+      }
+    },
+    inlineData
+  );
+  return {
+    definition,
+    inlineData,
+    layout: normalizeScreenLayout({
+      grid: doc.layout.grid,
+      placements,
+      themeId: doc.layout.themeId
+    })
+  };
+}
+function clearWidgetsInDoc(doc) {
+  return replaceAllWidgetsInDoc(doc, []);
+}
+function applyWidgetOp(doc, op) {
+  switch (op.op) {
+    case "upsert":
+      return upsertWidgetIntoDoc(doc, op.widget, op.layout);
+    case "remove":
+      return removeWidgetFromDoc(doc, op.id);
+    case "replace_all":
+      return replaceAllWidgetsInDoc(doc, op.items);
+    case "clear":
+      return clearWidgetsInDoc(doc);
+    default: {
+      const _exhaustive = op;
+      throw new Error(`Unknown widgets op: ${_exhaustive.op}`);
+    }
+  }
+}
+function writeViewFile(view) {
+  writeAtomic(viewFilePath(view.id), JSON.stringify(view, null, 2) + "\n");
+}
+function upsertViewIndex(meta) {
+  const index = readViewsIndex();
+  const next = index.some((v) => v.id === meta.id) ? index.map((v) => v.id === meta.id ? meta : v) : [...index, meta];
+  writeViewsIndex(next);
+}
+function syncActiveScreenFromView(view, inlineData) {
+  const state = getScreen();
+  if (state.activeViewId !== view.id) return;
+  persistScreen({
+    definition: view.definition,
+    layout: view.layout,
+    inlineData,
+    activeViewId: view.id,
+    overlays: [],
+    updatedAt: nowIso()
   });
+}
+function createView(input) {
+  const slug = normalizeSlug(input.slug);
+  const index = readViewsIndex();
+  if (index.some((v) => v.slug === slug)) {
+    throw new Error(`View slug already exists: ${slug}`);
+  }
+  const title = input.title?.trim() || slug;
+  const id = randomUUID();
+  const updatedAt = nowIso();
+  const saved = {
+    id,
+    slug,
+    title,
+    updatedAt,
+    definition: emptyDefinition(title),
+    layout: defaultLayout()
+  };
+  writeViewFile(saved);
+  upsertViewIndex({ id, slug, title, updatedAt });
+  return saved;
+}
+function summarizeView(view) {
+  return {
+    id: view.id,
+    slug: view.slug,
+    title: view.title,
+    updatedAt: view.updatedAt,
+    definition: view.definition,
+    layout: view.layout
+  };
+}
+function patchView(input) {
+  const view = getView(input.id);
+  if (!view) throw new Error(`View not found: ${input.id}`);
+  let slug = view.slug;
+  if (input.slug !== void 0) {
+    slug = normalizeSlug(input.slug);
+    const clash = readViewsIndex().find((v) => v.slug === slug && v.id !== view.id);
+    if (clash) throw new Error(`View slug already exists: ${slug}`);
+  }
+  const title = input.title !== void 0 ? input.title.trim() || slug : view.title;
+  let doc = {
+    definition: view.definition,
+    layout: view.layout,
+    inlineData: {}
+  };
+  const screen = getScreen();
+  if (screen.activeViewId === view.id) {
+    doc = { ...doc, inlineData: screen.inlineData };
+  }
+  if (title !== doc.definition.title) {
+    doc = {
+      ...doc,
+      definition: parseViewIr({ ...doc.definition, title })
+    };
+  }
+  if (input.grid) {
+    doc = { ...doc, layout: applyGridToLayout(doc.layout, input.grid) };
+  }
+  if (input.widgets) {
+    doc = applyWidgetOp(doc, input.widgets);
+  }
+  const updatedAt = nowIso();
+  const saved = {
+    id: view.id,
+    slug,
+    title,
+    updatedAt,
+    definition: doc.definition.title === title ? doc.definition : parseViewIr({ ...doc.definition, title }),
+    layout: doc.layout
+  };
+  writeViewFile(saved);
+  upsertViewIndex({ id: saved.id, slug: saved.slug, title: saved.title, updatedAt });
+  syncActiveScreenFromView(saved, doc.inlineData);
+  return saved;
 }
 function readViewsIndex() {
   ensureDirs();
@@ -8682,47 +9071,19 @@ function getView(id) {
     return null;
   }
 }
-function saveScreenAsView(input) {
-  const state = getScreen();
-  if (!state.definition) throw new Error("Nothing on screen to save");
-  const slug = input.slug.trim().toLowerCase();
-  if (!/^[a-z][a-z0-9-]*$/.test(slug)) throw new Error("Invalid slug");
-  const index = readViewsIndex();
-  const existing = index.find((v) => v.slug === slug);
-  const id = existing?.id ?? randomUUID();
-  const title = input.title?.trim() || state.definition.title || slug;
-  const updatedAt = nowIso();
-  const definition = title !== state.definition.title ? parseViewIr({ ...state.definition, title }) : state.definition;
-  const saved = {
-    id,
-    slug,
-    title,
-    updatedAt,
-    definition,
-    layout: state.layout
-  };
-  writeAtomic(viewFilePath(id), JSON.stringify(saved, null, 2) + "\n");
-  const nextIndex = existing ? index.map((v) => v.id === id ? { id, slug, title, updatedAt } : v) : [...index, { id, slug, title, updatedAt }];
-  writeViewsIndex(nextIndex);
-  persistScreen({
-    ...state,
-    definition,
-    activeViewId: id,
-    updatedAt
-  });
-  return saved;
-}
 function deleteView(id) {
   const view = getView(id);
   if (!view) throw new Error(`View not found: ${id}`);
   const path = viewFilePath(id);
   if (existsSync2(path)) unlinkSync2(path);
   writeViewsIndex(readViewsIndex().filter((v) => v.id !== id));
+  detachViewFromOverlays(id);
   const state = getScreen();
   if (state.activeViewId === id) {
     clearScreen();
     return { deleted: id, cleared: true };
   }
+  syncScreenOverlays();
   return { deleted: id, cleared: false };
 }
 function loadViewOnScreen(id) {
@@ -8733,6 +9094,7 @@ function loadViewOnScreen(id) {
     inlineData: {},
     layout: normalizeScreenLayout(view.layout),
     activeViewId: view.id,
+    overlays: [],
     updatedAt: nowIso()
   });
 }
@@ -8751,14 +9113,15 @@ function summarizeScreen(state) {
     definition: state.definition,
     layout: state.layout,
     activeViewId: state.activeViewId,
+    overlays: state.overlays.map(summarizeOverlay),
     updatedAt: state.updatedAt,
     inlineData
   };
 }
 function syncDatasetIntoLiveScreen(key, data) {
   const state = getScreen();
-  if (!state.definition) return;
-  if (!boundDatasetKeys(state.definition).includes(key)) return;
+  const keys = boundDatasetKeys(state.definition, state.overlays);
+  if (!keys.includes(key)) return;
   persistScreen({
     ...state,
     inlineData: { ...state.inlineData, [key]: data }
@@ -8778,7 +9141,7 @@ async function refreshDueDatasets() {
   }
   if (result.refreshed.length > 0) {
     const state = getScreen();
-    if (state.definition) persistScreen(state);
+    if (state.definition || state.overlays.length > 0) persistScreen(state);
   }
   return {
     refreshed: result.refreshed.map((r) => r.key),
@@ -8795,6 +9158,227 @@ function deleteDataset(key) {
     persistScreen({ ...state, inlineData });
   }
   return { deleted: key };
+}
+function readOverlaysIndex() {
+  ensureDirs();
+  if (!existsSync2(overlaysIndexPath())) return [];
+  try {
+    const raw = JSON.parse(readFileSync3(overlaysIndexPath(), "utf8"));
+    return Array.isArray(raw.overlays) ? raw.overlays : [];
+  } catch {
+    return [];
+  }
+}
+function writeOverlaysIndex(overlays) {
+  writeAtomic(overlaysIndexPath(), JSON.stringify({ overlays }, null, 2) + "\n");
+}
+function writeOverlayFile(overlay) {
+  writeAtomic(overlayFilePath(overlay.id), JSON.stringify(overlay, null, 2) + "\n");
+}
+function upsertOverlayIndex(meta) {
+  const index = readOverlaysIndex();
+  const next = index.some((o) => o.id === meta.id) ? index.map((o) => o.id === meta.id ? meta : o) : [...index, meta];
+  writeOverlaysIndex(next);
+}
+function overlayMetaOf(overlay) {
+  return {
+    id: overlay.id,
+    slug: overlay.slug,
+    title: overlay.title,
+    mode: overlay.mode,
+    anchor: overlay.anchor,
+    viewIds: overlay.viewIds,
+    updatedAt: overlay.updatedAt
+  };
+}
+function normalizeOverlayViews(views) {
+  if (views === void 0) return null;
+  if (views === null || views.length === 0) return null;
+  const known = new Set(listViews().map((v) => v.id));
+  const missing = views.filter((id) => !known.has(id));
+  if (missing.length) throw new Error(`Unknown view id(s): ${missing.join(", ")}`);
+  return [...new Set(views.map(String))];
+}
+function assertOverlayChrome(mode, anchor) {
+  normalizeOverlayChrome({ mode, anchor, opacity: 1, order: 0 });
+  if (mode === "dock" && !overlayDockEdge(anchor)) {
+    throw new Error(`Dock overlay anchor "${anchor}" has no edge (use top/bottom/left/right or a corner)`);
+  }
+}
+function listOverlays() {
+  return readOverlaysIndex();
+}
+function getOverlay(id) {
+  const path = overlayFilePath(id);
+  if (!existsSync2(path)) return null;
+  try {
+    const raw = JSON.parse(readFileSync3(path, "utf8"));
+    const chrome = normalizeOverlayChrome({
+      mode: raw.mode,
+      anchor: raw.anchor,
+      width: raw.width,
+      height: raw.height,
+      opacity: raw.opacity ?? 1,
+      order: raw.order ?? 0
+    });
+    return {
+      ...raw,
+      mode: chrome.mode,
+      anchor: chrome.anchor,
+      width: chrome.width,
+      height: chrome.height,
+      opacity: chrome.opacity,
+      order: chrome.order,
+      viewIds: Array.isArray(raw.viewIds) ? raw.viewIds.length ? raw.viewIds.map(String) : [] : null,
+      layout: normalizeScreenLayout(raw.layout ?? defaultLayout())
+    };
+  } catch {
+    return null;
+  }
+}
+function summarizeOverlay(overlay) {
+  return {
+    id: overlay.id,
+    slug: overlay.slug,
+    title: overlay.title,
+    mode: overlay.mode,
+    anchor: overlay.anchor,
+    width: overlay.width,
+    height: overlay.height,
+    opacity: overlay.opacity,
+    order: overlay.order,
+    viewIds: overlay.viewIds,
+    updatedAt: overlay.updatedAt,
+    definition: overlay.definition,
+    layout: overlay.layout
+  };
+}
+function createOverlay(input) {
+  const slug = normalizeSlug(input.slug);
+  const index = readOverlaysIndex();
+  if (index.some((o) => o.slug === slug)) {
+    throw new Error(`Overlay slug already exists: ${slug}`);
+  }
+  assertOverlayChrome(input.mode, input.anchor);
+  const chrome = normalizeOverlayChrome({
+    mode: input.mode,
+    anchor: input.anchor,
+    width: input.width,
+    height: input.height,
+    opacity: input.opacity ?? 1,
+    order: input.order ?? 0
+  });
+  const title = input.title?.trim() || slug;
+  const id = randomUUID();
+  const updatedAt = nowIso();
+  const saved = {
+    id,
+    slug,
+    title,
+    mode: chrome.mode,
+    anchor: chrome.anchor,
+    width: chrome.width,
+    height: chrome.height,
+    opacity: chrome.opacity,
+    order: chrome.order,
+    viewIds: normalizeOverlayViews(input.views ?? null),
+    updatedAt,
+    definition: emptyDefinition(title),
+    layout: defaultLayout()
+  };
+  writeOverlayFile(saved);
+  upsertOverlayIndex(overlayMetaOf(saved));
+  syncScreenOverlays();
+  return saved;
+}
+function patchOverlay(input) {
+  const overlay = getOverlay(input.id);
+  if (!overlay) throw new Error(`Overlay not found: ${input.id}`);
+  let slug = overlay.slug;
+  if (input.slug !== void 0) {
+    slug = normalizeSlug(input.slug);
+    const clash = readOverlaysIndex().find((o) => o.slug === slug && o.id !== overlay.id);
+    if (clash) throw new Error(`Overlay slug already exists: ${slug}`);
+  }
+  const title = input.title !== void 0 ? input.title.trim() || slug : overlay.title;
+  const mode = input.mode ?? overlay.mode;
+  const anchor = input.anchor ?? overlay.anchor;
+  assertOverlayChrome(mode, anchor);
+  const width = input.width === null ? void 0 : input.width !== void 0 ? input.width : overlay.width;
+  const height = input.height === null ? void 0 : input.height !== void 0 ? input.height : overlay.height;
+  const chrome = normalizeOverlayChrome({
+    mode,
+    anchor,
+    width,
+    height,
+    opacity: input.opacity ?? overlay.opacity,
+    order: input.order ?? overlay.order
+  });
+  const viewIds = input.views !== void 0 ? normalizeOverlayViews(input.views) : overlay.viewIds;
+  let doc = {
+    definition: overlay.definition,
+    layout: overlay.layout,
+    inlineData: {}
+  };
+  const screen = getScreen();
+  if (screen.overlays.some((o) => o.id === overlay.id)) {
+    doc = { ...doc, inlineData: screen.inlineData };
+  }
+  if (title !== doc.definition.title) {
+    doc = {
+      ...doc,
+      definition: parseViewIr({ ...doc.definition, title })
+    };
+  }
+  if (input.grid) {
+    doc = { ...doc, layout: applyGridToLayout(doc.layout, input.grid) };
+  }
+  if (input.widgets) {
+    doc = applyWidgetOp(doc, input.widgets);
+  }
+  const updatedAt = nowIso();
+  const saved = {
+    id: overlay.id,
+    slug,
+    title,
+    mode: chrome.mode,
+    anchor: chrome.anchor,
+    width: chrome.width,
+    height: chrome.height,
+    opacity: chrome.opacity,
+    order: chrome.order,
+    viewIds,
+    updatedAt,
+    definition: doc.definition.title === title ? doc.definition : parseViewIr({ ...doc.definition, title }),
+    layout: doc.layout
+  };
+  writeOverlayFile(saved);
+  upsertOverlayIndex(overlayMetaOf(saved));
+  syncScreenOverlays();
+  return saved;
+}
+function deleteOverlay(id) {
+  const overlay = getOverlay(id);
+  if (!overlay) throw new Error(`Overlay not found: ${id}`);
+  const path = overlayFilePath(id);
+  if (existsSync2(path)) unlinkSync2(path);
+  writeOverlaysIndex(readOverlaysIndex().filter((o) => o.id !== id));
+  syncScreenOverlays();
+  return { deleted: id };
+}
+function detachViewFromOverlays(viewId) {
+  for (const meta of readOverlaysIndex()) {
+    const overlay = getOverlay(meta.id);
+    if (!overlay || !overlay.viewIds || !overlay.viewIds.includes(viewId)) continue;
+    const viewIds = overlay.viewIds.filter((id) => id !== viewId);
+    const next = {
+      ...overlay,
+      viewIds: viewIds.length ? viewIds : [],
+      updatedAt: nowIso()
+    };
+    writeOverlayFile(next);
+    upsertOverlayIndex(overlayMetaOf(next));
+  }
 }
 function getCarousel() {
   ensureDirs();
@@ -8890,100 +9474,98 @@ var widgetSpecSchema = external_exports.lazy(
     type: external_exports.enum(COMPONENT_TYPES),
     props: external_exports.record(external_exports.unknown()).optional(),
     data: external_exports.unknown().optional(),
+    on: external_exports.object({
+      click: external_exports.object({
+        action: external_exports.enum(["dataset.refresh", "navigate", "openUrl", "openDetail"])
+      }).passthrough().optional()
+    }).optional(),
     children: external_exports.array(widgetSpecSchema).optional()
   })
 );
+var layoutSchema = external_exports.object({
+  column: external_exports.number().int().min(1).max(MAX_COLUMNS).optional(),
+  index: external_exports.number().int().min(0).optional(),
+  colspan: external_exports.number().int().min(1).max(MAX_COLUMNS).optional(),
+  align: external_exports.enum(["start", "center", "end"]).optional()
+});
+var widgetItemSchema = external_exports.object({
+  widget: widgetSpecSchema,
+  layout: layoutSchema.optional()
+});
+var widgetsOpSchema = external_exports.discriminatedUnion("op", [
+  external_exports.object({
+    op: external_exports.literal("upsert"),
+    widget: widgetSpecSchema,
+    layout: layoutSchema.optional()
+  }),
+  external_exports.object({
+    op: external_exports.literal("remove"),
+    id: external_exports.string().min(1)
+  }),
+  external_exports.object({
+    op: external_exports.literal("replace_all"),
+    items: external_exports.array(widgetItemSchema)
+  }),
+  external_exports.object({
+    op: external_exports.literal("clear")
+  })
+]);
+var widgetJsonSchema = {
+  type: "object",
+  description: "Widget tree. Nested children allowed (HorizontalTiles template).",
+  properties: {
+    id: { type: "string" },
+    type: { type: "string", enum: [...COMPONENT_TYPES] },
+    props: { type: "object" },
+    data: {},
+    on: {
+      type: "object",
+      description: "Button only: { click: { action, \u2026 } }. Actions: openUrl, navigate, dataset.refresh (openDetail unsupported).",
+      properties: {
+        click: { type: "object" }
+      }
+    },
+    children: {
+      type: "array",
+      description: "Nested widgets (required for HorizontalTiles \u2014 stamped once per dataset row)",
+      items: { type: "object" }
+    }
+  },
+  required: ["id", "type"]
+};
+var layoutJsonSchema = {
+  type: "object",
+  description: "Screen placement (not inside widget.props). column is 1-based.",
+  properties: {
+    column: { type: "integer", minimum: 1, maximum: MAX_COLUMNS, description: "1-based start column" },
+    index: { type: "integer", minimum: 0, description: "0-based row band" },
+    colspan: { type: "integer", minimum: 1, maximum: MAX_COLUMNS },
+    align: { type: "string", enum: ["start", "center", "end"] }
+  }
+};
 var tools = [
   {
-    name: "ud_screen_get",
-    description: "Read live dashboard (IR + grid + placements). Inline/dataset data is summarized.",
+    name: "ud_view_list",
+    description: "List saved views (id, slug, title, updatedAt)",
     inputSchema: { type: "object", properties: {}, additionalProperties: false }
   },
   {
-    name: "ud_screen_clear",
-    description: "Clear the live dashboard (keeps grid config; does not delete datasets)",
-    inputSchema: { type: "object", properties: {}, additionalProperties: false }
-  },
-  {
-    name: "ud_widgets_spec",
-    description: "Return full IR widget specs (JSON Schema for each type's props). Call this when unsure which props a widget accepts \u2014 do not read plugin source. Optional type filter e.g. Stat.",
+    name: "ud_view_get",
+    description: "Read one saved view by UUID (definition + layout). Always pass id \u2014 for the live/active panel use ud_screen_get.",
     inputSchema: {
       type: "object",
-      properties: {
-        type: {
-          type: "string",
-          description: "Optional widget type filter (e.g. Stat, Icon, HorizontalTiles)"
-        }
-      },
+      properties: { id: { type: "string", description: "View UUID from ud_view_list" } },
+      required: ["id"],
       additionalProperties: false
     }
   },
   {
-    name: "ud_screen_show",
-    description: "Show a widget on the live dashboard. Default replace:false = upsert by widget.id (other widgets kept). replace:true wipes the whole screen then shows only this widget \u2014 never use for style/prop updates. Placement (top-level): column 1-based (1..grid.columns), index 0-based row, colspan. Omit column for horizontal-first auto-flow. Default grid is 3 columns (ud_screen_grid to change). For live data: bind props.dataset to a key from ud_datasets_upsert (no widget.data). HorizontalTiles: pass widget.children[] as the per-row template (Icon/Text/Stat/Stack\u2026). Creating a dashboard: pass top-level view:{slug,title?} (sibling of widget).",
+    name: "ud_view_create",
+    description: "Create an empty saved view (slug must be unique). Does not change the live screen \u2014 call ud_screen_load with the returned id to display it.",
     inputSchema: {
       type: "object",
       properties: {
-        widget: {
-          type: "object",
-          description: "Widget tree. Nested children allowed (HorizontalTiles template).",
-          properties: {
-            id: { type: "string" },
-            type: { type: "string", enum: [...COMPONENT_TYPES] },
-            props: { type: "object" },
-            data: {},
-            children: {
-              type: "array",
-              description: "Nested widgets (required for HorizontalTiles \u2014 stamped once per dataset row)",
-              items: { type: "object" }
-            }
-          },
-          required: ["id", "type"]
-        },
-        replace: {
-          type: "boolean",
-          description: "false (default): add or update this widget.id only. true: clear the screen and show only this widget."
-        },
-        column: {
-          type: "integer",
-          minimum: 1,
-          maximum: MAX_COLUMNS,
-          description: "1-based start column (not 0-based)"
-        },
-        index: { type: "integer", minimum: 0, description: "0-based row (same index = same band across columns; not add-order)" },
-        colspan: { type: "integer", minimum: 1, maximum: MAX_COLUMNS },
-        view: {
-          type: "object",
-          description: "Top-level only (sibling of widget). Save/upsert after show. Required when creating a new dashboard. Never put inside widget or props.",
-          properties: {
-            slug: { type: "string" },
-            title: { type: "string" }
-          },
-          required: ["slug"]
-        }
-      },
-      required: ["widget"]
-    }
-  },
-  {
-    name: "ud_screen_grid",
-    description: "Configure the placement grid (default 3 columns). Raise columns (1\u201326) for wider dashboards. visible:true shows column number overlay labels.",
-    inputSchema: {
-      type: "object",
-      properties: {
-        columns: { type: "integer", minimum: 1, maximum: MAX_COLUMNS },
-        visible: { type: "boolean" }
-      },
-      additionalProperties: false
-    }
-  },
-  {
-    name: "ud_screen_save_view",
-    description: "Save/overwrite the live dashboard as a named view (upsert by slug). Prefer view: on ud_screen_show when creating.",
-    inputSchema: {
-      type: "object",
-      properties: {
-        slug: { type: "string" },
+        slug: { type: "string", description: "Unique slug e.g. news" },
         title: { type: "string" }
       },
       required: ["slug"],
@@ -8991,8 +9573,52 @@ var tools = [
     }
   },
   {
-    name: "ud_screen_load_view",
-    description: "Load a saved view onto the live dashboard by view id (hydrates bound datasets from cache)",
+    name: "ud_view_patch",
+    description: "Patch a saved view by id: optional slug/title rename, grid columns, and/or one widgets op. Widgets ops: upsert (create/replace one widget id + optional layout), remove (by id), replace_all (full items list), clear. Upsert replaces that widget's subtree. Write-through to live screen if this view is active.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        id: { type: "string", description: "View UUID" },
+        slug: { type: "string", description: "Rename slug (must stay unique)" },
+        title: { type: "string" },
+        grid: {
+          type: "object",
+          properties: {
+            columns: { type: "integer", minimum: 1, maximum: MAX_COLUMNS },
+            visible: { type: "boolean", description: "Show column number overlay" }
+          }
+        },
+        widgets: {
+          type: "object",
+          description: "One widget operation (discriminated by op)",
+          properties: {
+            op: { type: "string", enum: ["upsert", "remove", "replace_all", "clear"] },
+            widget: widgetJsonSchema,
+            layout: layoutJsonSchema,
+            id: { type: "string", description: "Widget id (remove)" },
+            items: {
+              type: "array",
+              description: "Full widget list (replace_all)",
+              items: {
+                type: "object",
+                properties: {
+                  widget: widgetJsonSchema,
+                  layout: layoutJsonSchema
+                },
+                required: ["widget"]
+              }
+            }
+          },
+          required: ["op"]
+        }
+      },
+      required: ["id"],
+      additionalProperties: false
+    }
+  },
+  {
+    name: "ud_view_delete",
+    description: "Delete a saved view by UUID. If it was active, clears the live screen.",
     inputSchema: {
       type: "object",
       properties: { id: { type: "string" } },
@@ -9001,22 +9627,7 @@ var tools = [
     }
   },
   {
-    name: "ud_views_list",
-    description: "List saved views",
-    inputSchema: { type: "object", properties: {}, additionalProperties: false }
-  },
-  {
-    name: "ud_views_delete",
-    description: "Delete a saved view by id",
-    inputSchema: {
-      type: "object",
-      properties: { id: { type: "string" } },
-      required: ["id"],
-      additionalProperties: false
-    }
-  },
-  {
-    name: "ud_views_carousel",
+    name: "ud_view_carousel",
     description: "Enable/disable automatic cycling between saved views. Omit views (or pass []) to cycle all saved views; pass view ids to restrict the pool (order preserved). intervalSec default 10 (min 3). transition: fade | slide | scale. Call with enabled:false to stop. Panel must be open to advance.",
     inputSchema: {
       type: "object",
@@ -9043,15 +9654,172 @@ var tools = [
     }
   },
   {
+    name: "ud_overlay_list",
+    description: "List saved overlays (id, slug, title, mode, anchor, viewIds, updatedAt)",
+    inputSchema: { type: "object", properties: {}, additionalProperties: false }
+  },
+  {
+    name: "ud_overlay_get",
+    description: "Read one saved overlay by UUID (chrome + definition + layout)",
+    inputSchema: {
+      type: "object",
+      properties: { id: { type: "string", description: "Overlay UUID from ud_overlay_list" } },
+      required: ["id"],
+      additionalProperties: false
+    }
+  },
+  {
+    name: "ud_overlay_create",
+    description: "Create an empty overlay (shared chrome across views). mode: float (superimposed) or dock (reserves space / pushes the view). anchor: top|bottom|left|right|corners|center|center-left|center-right (dock forbids bare center). views omit/[] = all views; pass view UUIDs to restrict. opacity 0\u20131. Does not change which view is loaded.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        slug: { type: "string", description: "Unique slug e.g. news-ticker" },
+        title: { type: "string" },
+        mode: { type: "string", enum: [...OVERLAY_MODES], description: "float = over view; dock = push/reserve space" },
+        anchor: { type: "string", enum: [...OVERLAY_ANCHORS] },
+        width: {
+          description: 'Optional width: px number or percentage string e.g. "100%"',
+          oneOf: [{ type: "number", exclusiveMinimum: 0 }, { type: "string", pattern: "^\\d+(\\.\\d+)?%$" }]
+        },
+        height: {
+          description: 'Optional height: px number or percentage string e.g. "12%"',
+          oneOf: [{ type: "number", exclusiveMinimum: 0 }, { type: "string", pattern: "^\\d+(\\.\\d+)?%$" }]
+        },
+        opacity: { type: "number", minimum: 0, maximum: 1, description: "Default 1; useful for float watermarks" },
+        order: { type: "integer", minimum: 0, description: "Stack order within same edge (default 0)" },
+        views: {
+          type: "array",
+          items: { type: "string" },
+          description: "View UUIDs this overlay applies to (omit or [] = all views)"
+        }
+      },
+      required: ["slug", "mode", "anchor"],
+      additionalProperties: false
+    }
+  },
+  {
+    name: "ud_overlay_patch",
+    description: "Patch overlay by id: chrome (mode/anchor/size/opacity/order/views), optional slug/title/grid, and/or widgets op (same as ud_view_patch). Pass width/height null to clear. Write-through to live screen when the overlay matches the active view.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        id: { type: "string", description: "Overlay UUID" },
+        slug: { type: "string" },
+        title: { type: "string" },
+        mode: { type: "string", enum: [...OVERLAY_MODES] },
+        anchor: { type: "string", enum: [...OVERLAY_ANCHORS] },
+        width: {
+          description: "px number, percentage string, or null to clear",
+          oneOf: [
+            { type: "number", exclusiveMinimum: 0 },
+            { type: "string", pattern: "^\\d+(\\.\\d+)?%$" },
+            { type: "null" }
+          ]
+        },
+        height: {
+          description: "px number, percentage string, or null to clear",
+          oneOf: [
+            { type: "number", exclusiveMinimum: 0 },
+            { type: "string", pattern: "^\\d+(\\.\\d+)?%$" },
+            { type: "null" }
+          ]
+        },
+        opacity: { type: "number", minimum: 0, maximum: 1 },
+        order: { type: "integer", minimum: 0 },
+        views: {
+          type: "array",
+          items: { type: "string" },
+          description: "Replace view association (omit to keep; [] = all views)"
+        },
+        grid: {
+          type: "object",
+          properties: {
+            columns: { type: "integer", minimum: 1, maximum: MAX_COLUMNS },
+            visible: { type: "boolean" }
+          }
+        },
+        widgets: {
+          type: "object",
+          description: "One widget operation (same ops as ud_view_patch)",
+          properties: {
+            op: { type: "string", enum: ["upsert", "remove", "replace_all", "clear"] },
+            widget: widgetJsonSchema,
+            layout: layoutJsonSchema,
+            id: { type: "string", description: "Widget id (remove)" },
+            items: {
+              type: "array",
+              items: {
+                type: "object",
+                properties: {
+                  widget: widgetJsonSchema,
+                  layout: layoutJsonSchema
+                },
+                required: ["widget"]
+              }
+            }
+          },
+          required: ["op"]
+        }
+      },
+      required: ["id"],
+      additionalProperties: false
+    }
+  },
+  {
+    name: "ud_overlay_delete",
+    description: "Delete a saved overlay by UUID",
+    inputSchema: {
+      type: "object",
+      properties: { id: { type: "string" } },
+      required: ["id"],
+      additionalProperties: false
+    }
+  },
+  {
+    name: "ud_screen_get",
+    description: "Read the live panel (IR + layout + activeViewId + matching overlays). Inline/dataset data is summarized.",
+    inputSchema: { type: "object", properties: {}, additionalProperties: false }
+  },
+  {
+    name: "ud_screen_load",
+    description: "Load a saved view onto the live panel by view UUID. Sets activeViewId; hydrates bound datasets from cache.",
+    inputSchema: {
+      type: "object",
+      properties: { id: { type: "string" } },
+      required: ["id"],
+      additionalProperties: false
+    }
+  },
+  {
+    name: "ud_screen_clear",
+    description: "Clear the live panel and activeViewId (keeps grid config; does not delete saved views or datasets)",
+    inputSchema: { type: "object", properties: {}, additionalProperties: false }
+  },
+  {
+    name: "ud_widgets_spec",
+    description: "Return full IR widget specs (JSON Schema for each type's props). Call this when unsure which props a widget accepts \u2014 do not read plugin source. Optional type filter e.g. Stat.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        type: {
+          type: "string",
+          description: "Optional widget type filter (e.g. Stat, Icon, HorizontalTiles)"
+        }
+      },
+      additionalProperties: false
+    }
+  },
+  {
     name: "ud_datasets_upsert",
-    description: "Create/update a persisted dataset: HTTP GET, single parent (source.dataset), or multi-parent (source.datasets) + refreshIntervalSec + optional QuickJS transform. Derived sources re-read parent cache(s); cycles rejected. Refreshing a parent cascades to dependents. Plugin refreshes automatically; agent does not poll.",
+    description: "Create/update a persisted dataset: HTTP GET, single parent (source.dataset), or multi-parent (source.datasets) + refreshIntervalSec + optional QuickJS transform. On update, omit source / refreshIntervalSec / transform to keep existing values (partial patch). Derived sources re-read parent cache(s); cycles rejected. Refreshing a parent cascades to dependents. Plugin refreshes automatically; agent does not poll.",
     inputSchema: {
       type: "object",
       properties: {
         key: { type: "string", description: "Persisted slug e.g. orders-live (not _screen.*)" },
         source: {
           type: "object",
-          description: "Exactly one of: { url, headers?, jsonPath? } HTTP GET; { dataset, jsonPath? } one parent; { datasets: [key,\u2026] } two+ parents (transform gets { [key]: data }).",
+          description: "Required on create; omit on update to keep the current source. Exactly one of: { url, headers?, jsonPath? } HTTP GET; { dataset, jsonPath? } one parent; { datasets: [key,\u2026] } two+ parents (transform gets { [key]: data }).",
           properties: {
             url: {
               type: "string",
@@ -9074,13 +9842,17 @@ var tools = [
             }
           }
         },
-        refreshIntervalSec: { type: "integer", minimum: 60, description: "Default 600" },
+        refreshIntervalSec: {
+          type: "integer",
+          minimum: 60,
+          description: "Default 600 on create; omit on update to keep existing"
+        },
         transform: {
           type: "string",
           description: 'Optional QuickJS sync function body for (data) => \u2026 after resolve(+jsonPath). Multi-parent: data is { [key]: payload }. Must return JSON. No fetch/fs/async. Omit to keep existing; pass "" to clear.'
         }
       },
-      required: ["key", "source"],
+      required: ["key"],
       additionalProperties: false
     }
   },
@@ -9120,63 +9892,67 @@ var tools = [
     }
   }
 ];
-function autoPersistView(view) {
-  if (view?.slug) {
-    return saveScreenAsView({ slug: String(view.slug), title: view.title !== void 0 ? String(view.title) : void 0 });
-  }
-  const state = getScreen();
-  if (!state.activeViewId) return null;
-  const existing = getView(state.activeViewId);
-  if (!existing) return null;
-  return saveScreenAsView({ slug: existing.slug, title: existing.title });
-}
 async function callTool(name, args2) {
   try {
     switch (name) {
-      case "ud_screen_get":
-        return text(summarizeScreen(getScreen()));
-      case "ud_screen_clear":
-        return text(summarizeScreen(clearScreen()));
-      case "ud_widgets_spec": {
-        const type = args2.type !== void 0 ? external_exports.string().min(1).parse(args2.type) : void 0;
-        return text(widgetsSpec(type));
+      case "ud_view_list":
+        return text({ views: listViews() });
+      case "ud_view_get": {
+        const id = external_exports.string().min(1).parse(args2.id);
+        const view = getView(id);
+        if (!view) throw new Error(`View not found: ${id}`);
+        return text(summarizeView(view));
       }
-      case "ud_screen_grid": {
-        const columns = args2.columns !== void 0 ? external_exports.number().int().min(1).max(MAX_COLUMNS).parse(args2.columns) : void 0;
-        const visible = args2.visible !== void 0 ? external_exports.boolean().parse(args2.visible) : void 0;
-        return text(summarizeScreen(configureScreenGrid({ columns, visible })));
-      }
-      case "ud_screen_show": {
-        const widget = widgetSpecSchema.parse(args2.widget);
-        showOnScreen({
-          widget,
-          replace: args2.replace === true,
-          column: typeof args2.column === "number" ? args2.column : void 0,
-          index: typeof args2.index === "number" ? args2.index : void 0,
-          colspan: typeof args2.colspan === "number" ? args2.colspan : void 0
-        });
-        const viewArg = args2.view && typeof args2.view === "object" ? args2.view : null;
-        const saved = autoPersistView(viewArg);
-        const summary = summarizeScreen(getScreen());
-        return text(saved ? { ...summary, savedView: { id: saved.id, slug: saved.slug, title: saved.title } } : summary);
-      }
-      case "ud_screen_save_view": {
+      case "ud_view_create": {
         const slug = external_exports.string().min(1).parse(args2.slug);
         const title = args2.title !== void 0 ? external_exports.string().parse(args2.title) : void 0;
-        const saved = saveScreenAsView({ slug, title });
-        return text({ id: saved.id, slug: saved.slug, title: saved.title, updatedAt: saved.updatedAt });
+        return text(summarizeView(createView({ slug, title })));
       }
-      case "ud_screen_load_view": {
+      case "ud_view_patch": {
         const id = external_exports.string().min(1).parse(args2.id);
-        return text(summarizeScreen(loadViewOnScreen(id)));
+        const slug = args2.slug !== void 0 ? external_exports.string().min(1).parse(args2.slug) : void 0;
+        const title = args2.title !== void 0 ? external_exports.string().parse(args2.title) : void 0;
+        let grid;
+        if (args2.grid !== void 0) {
+          const g = external_exports.object({
+            columns: external_exports.number().int().min(1).max(MAX_COLUMNS).optional(),
+            visible: external_exports.boolean().optional()
+          }).parse(args2.grid);
+          grid = g;
+        }
+        let widgets;
+        if (args2.widgets !== void 0) {
+          const parsed = widgetsOpSchema.parse(args2.widgets);
+          if (parsed.op === "upsert") {
+            widgets = {
+              op: "upsert",
+              widget: parsed.widget,
+              layout: parsed.layout
+            };
+          } else if (parsed.op === "remove") {
+            widgets = { op: "remove", id: parsed.id };
+          } else if (parsed.op === "replace_all") {
+            widgets = {
+              op: "replace_all",
+              items: parsed.items.map((it) => ({
+                widget: it.widget,
+                layout: it.layout
+              }))
+            };
+          } else {
+            widgets = { op: "clear" };
+          }
+        }
+        if (slug === void 0 && title === void 0 && grid === void 0 && widgets === void 0) {
+          throw new Error("ud_view_patch requires at least one of: slug, title, grid, widgets");
+        }
+        return text(summarizeView(patchView({ id, slug, title, grid, widgets })));
       }
-      case "ud_views_list":
-        return text({ views: listViews() });
-      case "ud_views_delete": {
+      case "ud_view_delete": {
         const id = external_exports.string().min(1).parse(args2.id);
         return text(deleteView(id));
       }
-      case "ud_views_carousel": {
+      case "ud_view_carousel": {
         const enabled = external_exports.boolean().parse(args2.enabled);
         const intervalSec = args2.intervalSec !== void 0 ? external_exports.number().int().min(3).parse(args2.intervalSec) : void 0;
         const transition = args2.transition !== void 0 ? external_exports.enum(["fade", "slide", "scale"]).parse(args2.transition) : void 0;
@@ -9192,6 +9968,120 @@ async function callTool(name, args2) {
             transition
           })
         );
+      }
+      case "ud_overlay_list":
+        return text({ overlays: listOverlays() });
+      case "ud_overlay_get": {
+        const id = external_exports.string().min(1).parse(args2.id);
+        const overlay = getOverlay(id);
+        if (!overlay) throw new Error(`Overlay not found: ${id}`);
+        return text(summarizeOverlay(overlay));
+      }
+      case "ud_overlay_create": {
+        const slug = external_exports.string().min(1).parse(args2.slug);
+        const title = args2.title !== void 0 ? external_exports.string().parse(args2.title) : void 0;
+        const mode = external_exports.enum(OVERLAY_MODES).parse(args2.mode);
+        const anchor = external_exports.enum(OVERLAY_ANCHORS).parse(args2.anchor);
+        const sizeSchema = external_exports.union([
+          external_exports.number().positive(),
+          external_exports.string().regex(/^\d+(\.\d+)?%$/)
+        ]);
+        const width = args2.width !== void 0 ? sizeSchema.parse(args2.width) : void 0;
+        const height = args2.height !== void 0 ? sizeSchema.parse(args2.height) : void 0;
+        const opacity = args2.opacity !== void 0 ? external_exports.number().min(0).max(1).parse(args2.opacity) : void 0;
+        const order = args2.order !== void 0 ? external_exports.number().int().min(0).parse(args2.order) : void 0;
+        const views = args2.views !== void 0 ? external_exports.array(external_exports.string().min(1)).parse(args2.views) : void 0;
+        return text(
+          summarizeOverlay(
+            createOverlay({ slug, title, mode, anchor, width, height, opacity, order, views })
+          )
+        );
+      }
+      case "ud_overlay_patch": {
+        const id = external_exports.string().min(1).parse(args2.id);
+        const slug = args2.slug !== void 0 ? external_exports.string().min(1).parse(args2.slug) : void 0;
+        const title = args2.title !== void 0 ? external_exports.string().parse(args2.title) : void 0;
+        const mode = args2.mode !== void 0 ? external_exports.enum(OVERLAY_MODES).parse(args2.mode) : void 0;
+        const anchor = args2.anchor !== void 0 ? external_exports.enum(OVERLAY_ANCHORS).parse(args2.anchor) : void 0;
+        const sizeOrNull = external_exports.union([
+          external_exports.number().positive(),
+          external_exports.string().regex(/^\d+(\.\d+)?%$/),
+          external_exports.null()
+        ]);
+        const width = args2.width !== void 0 ? sizeOrNull.parse(args2.width) : void 0;
+        const height = args2.height !== void 0 ? sizeOrNull.parse(args2.height) : void 0;
+        const opacity = args2.opacity !== void 0 ? external_exports.number().min(0).max(1).parse(args2.opacity) : void 0;
+        const order = args2.order !== void 0 ? external_exports.number().int().min(0).parse(args2.order) : void 0;
+        const views = args2.views !== void 0 ? external_exports.array(external_exports.string().min(1)).parse(args2.views) : void 0;
+        let grid;
+        if (args2.grid !== void 0) {
+          grid = external_exports.object({
+            columns: external_exports.number().int().min(1).max(MAX_COLUMNS).optional(),
+            visible: external_exports.boolean().optional()
+          }).parse(args2.grid);
+        }
+        let widgets;
+        if (args2.widgets !== void 0) {
+          const parsed = widgetsOpSchema.parse(args2.widgets);
+          if (parsed.op === "upsert") {
+            widgets = {
+              op: "upsert",
+              widget: parsed.widget,
+              layout: parsed.layout
+            };
+          } else if (parsed.op === "remove") {
+            widgets = { op: "remove", id: parsed.id };
+          } else if (parsed.op === "replace_all") {
+            widgets = {
+              op: "replace_all",
+              items: parsed.items.map((it) => ({
+                widget: it.widget,
+                layout: it.layout
+              }))
+            };
+          } else {
+            widgets = { op: "clear" };
+          }
+        }
+        if (slug === void 0 && title === void 0 && mode === void 0 && anchor === void 0 && width === void 0 && height === void 0 && opacity === void 0 && order === void 0 && views === void 0 && grid === void 0 && widgets === void 0) {
+          throw new Error(
+            "ud_overlay_patch requires at least one of: slug, title, mode, anchor, width, height, opacity, order, views, grid, widgets"
+          );
+        }
+        return text(
+          summarizeOverlay(
+            patchOverlay({
+              id,
+              slug,
+              title,
+              mode,
+              anchor,
+              width,
+              height,
+              opacity,
+              order,
+              views,
+              grid,
+              widgets
+            })
+          )
+        );
+      }
+      case "ud_overlay_delete": {
+        const id = external_exports.string().min(1).parse(args2.id);
+        return text(deleteOverlay(id));
+      }
+      case "ud_screen_get":
+        return text(summarizeScreen(getScreen()));
+      case "ud_screen_load": {
+        const id = external_exports.string().min(1).parse(args2.id);
+        return text(summarizeScreen(loadViewOnScreen(id)));
+      }
+      case "ud_screen_clear":
+        return text(summarizeScreen(clearScreen()));
+      case "ud_widgets_spec": {
+        const type = args2.type !== void 0 ? external_exports.string().min(1).parse(args2.type) : void 0;
+        return text(widgetsSpec(type));
       }
       case "ud_datasets_upsert": {
         const key = external_exports.string().min(1).parse(args2.key);
@@ -9317,6 +10207,213 @@ async function serveMcp() {
   });
 }
 
+// src/youtube.ts
+import { spawn } from "node:child_process";
+var VIDEO_ID_RE = /^[A-Za-z0-9_-]{11}$/;
+var FORMAT_TRIES = [
+  "95/94/93/92/91/90/96",
+  "b",
+  "best",
+  "best*",
+  "bv*+ba/b"
+];
+function parseYoutubeId(input) {
+  const raw = String(input || "").trim();
+  if (!raw) return null;
+  if (VIDEO_ID_RE.test(raw)) return raw;
+  let url;
+  try {
+    url = new URL(raw);
+  } catch {
+    return null;
+  }
+  const host = url.hostname.replace(/^www\./, "").toLowerCase();
+  if (host === "youtu.be") {
+    const id = url.pathname.split("/").filter(Boolean)[0] || "";
+    return VIDEO_ID_RE.test(id) ? id : null;
+  }
+  if (host === "youtube.com" || host === "m.youtube.com" || host === "music.youtube.com") {
+    const v = url.searchParams.get("v");
+    if (v && VIDEO_ID_RE.test(v)) return v;
+    const parts = url.pathname.split("/").filter(Boolean);
+    if (parts.length >= 2 && ["embed", "live", "shorts", "v", "e"].includes(parts[0])) {
+      const id = parts[1];
+      return VIDEO_ID_RE.test(id) ? id : null;
+    }
+  }
+  return null;
+}
+function youtubeWatchUrl(input) {
+  const id = parseYoutubeId(input);
+  if (id) return `https://www.youtube.com/watch?v=${id}`;
+  const trimmed = String(input || "").trim();
+  if (!trimmed) throw new Error("YouTube URL or video id required");
+  return trimmed;
+}
+function runYtDlp(args2, timeoutMs = 9e4) {
+  return new Promise((resolve, reject) => {
+    const child = spawn("yt-dlp", args2, {
+      env: { ...process.env, PYTHONUNBUFFERED: "1" },
+      stdio: ["ignore", "pipe", "pipe"]
+    });
+    let stdout = "";
+    let stderr = "";
+    const timer = setTimeout(() => {
+      child.kill("SIGKILL");
+      reject(new Error(`yt-dlp timed out after ${timeoutMs}ms`));
+    }, timeoutMs);
+    child.stdout.on("data", (chunk) => {
+      stdout += chunk.toString("utf8");
+    });
+    child.stderr.on("data", (chunk) => {
+      stderr += chunk.toString("utf8");
+    });
+    child.on("error", (err) => {
+      clearTimeout(timer);
+      if (err.code === "ENOENT") {
+        reject(new Error("yt-dlp not found on PATH \u2014 install yt-dlp for Youtube widgets"));
+      } else {
+        reject(err);
+      }
+    });
+    child.on("close", (code) => {
+      clearTimeout(timer);
+      if (code !== 0) {
+        const msg = (stderr || stdout || `yt-dlp exited ${code}`).trim().split("\n").slice(-4).join(" ");
+        reject(new Error(msg || `yt-dlp exited ${code}`));
+        return;
+      }
+      resolve({ stdout, stderr });
+    });
+  });
+}
+function isHttpUrl(u) {
+  return !!u && /^https?:\/\//i.test(u);
+}
+function isHls(f) {
+  const p = String(f.protocol || "").toLowerCase();
+  const e = String(f.ext || "").toLowerCase();
+  return p.includes("m3u8") || e === "m3u8";
+}
+function hasVideo(f) {
+  return !!f.vcodec && f.vcodec !== "none";
+}
+function hasAudio(f) {
+  return !!f.acodec && f.acodec !== "none";
+}
+function pickStreamUrl(data) {
+  if (isHttpUrl(data.url) && (!data.requested_formats || data.requested_formats.length <= 1)) {
+    return { src: data.url, protocol: data.protocol ?? null, ext: data.ext ?? null };
+  }
+  const formats = (data.formats || []).filter((f) => isHttpUrl(f.url) && hasVideo(f));
+  if (!formats.length) return null;
+  const score = (f) => {
+    let s = 0;
+    if (isHls(f)) s += 1e3;
+    if (hasAudio(f)) s += 500;
+    const h = typeof f.height === "number" ? f.height : 0;
+    if (h > 0 && h <= 720) s += h;
+    else if (h > 720) s += 720 - Math.min(h - 720, 400);
+    if (typeof f.tbr === "number") s += Math.min(f.tbr, 5e3) / 100;
+    return s;
+  };
+  formats.sort((a, b) => score(b) - score(a));
+  const best = formats[0];
+  return {
+    src: best.url,
+    protocol: best.protocol ?? null,
+    ext: best.ext ?? null
+  };
+}
+async function resolveViaFormatTry(watch) {
+  let lastErr = null;
+  for (const format of FORMAT_TRIES) {
+    try {
+      const { stdout } = await runYtDlp([
+        "--no-playlist",
+        "--no-warnings",
+        "--extractor-args",
+        "youtube:player_client=android,web",
+        "-f",
+        format,
+        "-g",
+        watch
+      ]);
+      const lines = stdout.split("\n").map((l) => l.trim()).filter((l) => /^https?:\/\//i.test(l));
+      if (lines.length === 1) return lines[0];
+      if (lines.length > 1) {
+        const hls = lines.find((u) => /m3u8/i.test(u));
+        if (hls) return hls;
+        lastErr = new Error(`format ${format} returned ${lines.length} URLs (DASH split)`);
+        continue;
+      }
+    } catch (e) {
+      lastErr = e instanceof Error ? e : new Error(String(e));
+    }
+  }
+  throw lastErr || new Error("No playable YouTube format found");
+}
+async function resolveYoutube(input) {
+  const watch = youtubeWatchUrl(input);
+  const idHint = parseYoutubeId(input);
+  let data;
+  try {
+    const { stdout } = await runYtDlp([
+      "--no-playlist",
+      "--no-warnings",
+      "--extractor-args",
+      "youtube:player_client=android,web",
+      "-J",
+      watch
+    ]);
+    data = JSON.parse(stdout);
+  } catch (e) {
+    const src2 = await resolveViaFormatTry(watch);
+    const videoId2 = idHint;
+    if (!videoId2) throw e instanceof Error ? e : new Error(String(e));
+    return {
+      videoId: videoId2,
+      title: null,
+      src: src2,
+      protocol: null,
+      ext: null,
+      isLive: false,
+      resolvedAt: (/* @__PURE__ */ new Date()).toISOString()
+    };
+  }
+  const liveStatus = String(data.live_status || "").toLowerCase();
+  const isLive = data.is_live === true || liveStatus === "is_live" || liveStatus === "is_upcoming";
+  let picked = pickStreamUrl(data);
+  let src = picked?.src ?? "";
+  let protocol = picked?.protocol ?? null;
+  let ext = picked?.ext ?? null;
+  if (!src) {
+    src = await resolveViaFormatTry(watch);
+  }
+  if (!src || !/^https?:\/\//i.test(src)) {
+    throw new Error("yt-dlp did not return an http(s) media URL (try: yt-dlp -U)");
+  }
+  const videoId = (data.id && VIDEO_ID_RE.test(data.id) ? data.id : null) || idHint;
+  if (!videoId) throw new Error("Could not determine YouTube video id");
+  return {
+    videoId,
+    title: typeof data.title === "string" ? data.title : null,
+    src,
+    protocol,
+    ext,
+    isLive,
+    resolvedAt: (/* @__PURE__ */ new Date()).toISOString()
+  };
+}
+async function ytDlpAvailable() {
+  try {
+    await runYtDlp(["--version"], 1e4);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 // src/index.ts
 var args = process.argv.slice(2);
 var cmd = args[0] || "serve";
@@ -9331,6 +10428,10 @@ async function main() {
   }
   if (cmd === "views") {
     process.stdout.write(JSON.stringify({ views: listViews() }, null, 2) + "\n");
+    return;
+  }
+  if (cmd === "overlays") {
+    process.stdout.write(JSON.stringify({ overlays: listOverlays() }, null, 2) + "\n");
     return;
   }
   if (cmd === "datasets") {
@@ -9402,16 +10503,32 @@ async function main() {
     process.stdout.write(JSON.stringify(result, null, 2) + "\n");
     return;
   }
+  if (cmd === "youtube-resolve") {
+    const input = args[1];
+    if (!input) {
+      process.stderr.write("usage: universal-dashboard youtube-resolve <url|videoId>\n");
+      process.exit(2);
+    }
+    const resolved = await resolveYoutube(input);
+    process.stdout.write(JSON.stringify(resolved, null, 2) + "\n");
+    return;
+  }
   if (cmd === "doctor") {
+    const ytdlp = await ytDlpAvailable();
     process.stdout.write(
       JSON.stringify(
         {
           ok: true,
-          version: "0.1.0",
+          version: "0.3.0",
           screen: summarizeScreen(getScreen()),
           views: listViews(),
+          overlays: listOverlays(),
           datasets: listDatasets(),
-          carousel: getCarousel()
+          carousel: getCarousel(),
+          youtube: {
+            ytDlp: ytdlp,
+            note: ytdlp ? "yt-dlp on PATH \u2014 Youtube widgets can resolve streams" : "yt-dlp missing \u2014 install for Youtube widget playback"
+          }
         },
         null,
         2
@@ -9422,7 +10539,7 @@ async function main() {
   process.stderr.write(`Unknown command: ${cmd}
 `);
   process.stderr.write(
-    "usage: universal-dashboard <serve|status|views|datasets|carousel|load-view|delete-view|refresh|refresh-due|doctor>\n"
+    "usage: universal-dashboard <serve|status|views|overlays|datasets|carousel|load-view|delete-view|refresh|refresh-due|youtube-resolve|doctor>\n"
   );
   process.exit(2);
 }

@@ -62,6 +62,7 @@ function emptyScreen() {
       themeId: "default"
     },
     activeViewId: null,
+    overlays: [],
     updatedAt: ""
   }
 }
@@ -70,15 +71,134 @@ function parseScreen(raw) {
   try {
     var data = JSON.parse(String(raw || ""))
     if (!data || typeof data !== "object") return emptyScreen()
+    var overlays = []
+    if (Array.isArray(data.overlays)) {
+      for (var i = 0; i < data.overlays.length; i++) {
+        var o = normalizeOverlay(data.overlays[i])
+        if (o) overlays.push(o)
+      }
+    }
     return {
       definition: data.definition || null,
       inlineData: data.inlineData && typeof data.inlineData === "object" ? data.inlineData : {},
       layout: data.layout && typeof data.layout === "object" ? data.layout : emptyScreen().layout,
       activeViewId: data.activeViewId || null,
+      overlays: overlays,
       updatedAt: data.updatedAt || ""
     }
   } catch (e) {
     return emptyScreen()
+  }
+}
+
+function normalizeOverlay(raw) {
+  if (!raw || typeof raw !== "object" || !raw.id) return null
+  var mode = raw.mode === "dock" ? "dock" : "float"
+  var anchor = String(raw.anchor || "top")
+  var viewIds = null
+  if (Array.isArray(raw.viewIds)) {
+    viewIds = []
+    for (var i = 0; i < raw.viewIds.length; i++) {
+      if (raw.viewIds[i]) viewIds.push(String(raw.viewIds[i]))
+    }
+  }
+  var opacity = Number(raw.opacity)
+  if (!isFinite(opacity) || opacity < 0) opacity = 1
+  if (opacity > 1) opacity = 1
+  var order = parseInt(raw.order, 10)
+  if (!isFinite(order) || order < 0) order = 0
+  return {
+    id: String(raw.id),
+    slug: String(raw.slug || raw.id),
+    title: String(raw.title || raw.slug || raw.id),
+    mode: mode,
+    anchor: anchor,
+    width: raw.width,
+    height: raw.height,
+    opacity: opacity,
+    order: order,
+    viewIds: viewIds,
+    definition: raw.definition || null,
+    layout: raw.layout && typeof raw.layout === "object" ? raw.layout : emptyScreen().layout,
+    updatedAt: String(raw.updatedAt || "")
+  }
+}
+
+/** Dock edge for an overlay anchor, or "" if none (center / float-only). */
+function overlayDockEdge(anchor) {
+  var a = String(anchor || "")
+  if (a === "top" || a === "top-left" || a === "top-right") return "top"
+  if (a === "bottom" || a === "bottom-left" || a === "bottom-right") return "bottom"
+  if (a === "left" || a === "center-left") return "left"
+  if (a === "right" || a === "center-right") return "right"
+  return ""
+}
+
+function overlayHAlign(anchor) {
+  var a = String(anchor || "")
+  if (a === "top-left" || a === "bottom-left" || a === "left" || a === "center-left") return "start"
+  if (a === "top-right" || a === "bottom-right" || a === "right" || a === "center-right") return "end"
+  return "center"
+}
+
+function overlayVAlign(anchor) {
+  var a = String(anchor || "")
+  if (a === "top" || a === "top-left" || a === "top-right") return "start"
+  if (a === "bottom" || a === "bottom-left" || a === "bottom-right") return "end"
+  return "center"
+}
+
+/** Resolve width/height against axis px. Returns 0 when content-sized (caller uses implicit). */
+function overlaySizePx(size, axisPx) {
+  if (size === undefined || size === null || size === "") return 0
+  if (typeof size === "number") return size > 0 ? size : 0
+  var s = String(size)
+  if (s.charAt(s.length - 1) === "%") {
+    var pct = parseFloat(s)
+    if (!isFinite(pct) || axisPx <= 0) return 0
+    return Math.max(1, axisPx * pct / 100)
+  }
+  var n = parseFloat(s)
+  return isFinite(n) && n > 0 ? n : 0
+}
+
+function screenOverlays(screen) {
+  if (!screen || !Array.isArray(screen.overlays)) return []
+  return screen.overlays
+}
+
+function dockOverlays(screen, edge) {
+  var list = screenOverlays(screen)
+  var out = []
+  for (var i = 0; i < list.length; i++) {
+    var o = list[i]
+    if (!o || o.mode !== "dock") continue
+    if (overlayDockEdge(o.anchor) === edge) out.push(o)
+  }
+  return out
+}
+
+function floatOverlays(screen) {
+  var list = screenOverlays(screen)
+  var out = []
+  for (var i = 0; i < list.length; i++) {
+    var o = list[i]
+    if (!o || o.mode === "dock") continue
+    out.push(o)
+  }
+  return out
+}
+
+/** Fake screen object so IrView can render an overlay definition with shared inlineData. */
+function overlayAsScreen(overlay, inlineData) {
+  if (!overlay) return emptyScreen()
+  return {
+    definition: overlay.definition || null,
+    inlineData: inlineData && typeof inlineData === "object" ? inlineData : {},
+    layout: overlay.layout && typeof overlay.layout === "object" ? overlay.layout : emptyScreen().layout,
+    activeViewId: null,
+    overlays: [],
+    updatedAt: overlay.updatedAt || ""
   }
 }
 
@@ -188,6 +308,167 @@ function boundText(props, screen, dataRow) {
   return props.text !== undefined && props.text !== null ? String(props.text) : ""
 }
 
+/** Image / Video URL from `src` or `srcField` (+ optional `dataset` / stamped row). */
+function boundSrc(props, screen, dataRow) {
+  if (!props) return ""
+  if (props.srcField) {
+    var row = dataRow !== undefined && dataRow !== null
+      ? dataRow
+      : (props.dataset ? (asRows(datasetOf(screen, props.dataset))[0] || null) : null)
+    if (row) {
+      var val = readField(row, props.srcField)
+      if (val !== undefined && val !== null && String(val).length) return String(val)
+    }
+  }
+  return props.src !== undefined && props.src !== null ? String(props.src) : ""
+}
+
+/**
+ * Youtube watch input: videoId / videoIdField wins, else src / srcField
+ * (watch URL, youtu.be, embed, or bare id).
+ */
+function youtubeInput(props, screen, dataRow) {
+  if (!props) return ""
+  var row = dataRow !== undefined && dataRow !== null
+    ? dataRow
+    : (props.dataset ? (asRows(datasetOf(screen, props.dataset))[0] || null) : null)
+  if (props.videoIdField && row) {
+    var idField = readField(row, props.videoIdField)
+    if (idField !== undefined && idField !== null && String(idField).length)
+      return String(idField).trim()
+  }
+  if (props.videoId !== undefined && props.videoId !== null && String(props.videoId).length)
+    return String(props.videoId).trim()
+  if (props.srcField && row) {
+    var srcField = readField(row, props.srcField)
+    if (srcField !== undefined && srcField !== null && String(srcField).length)
+      return String(srcField).trim()
+  }
+  if (props.src !== undefined && props.src !== null && String(props.src).length)
+    return String(props.src).trim()
+  return ""
+}
+
+/** Re-resolve interval for Youtube (sec). Default 1200; clamp 300..86400. */
+function youtubeResolveIntervalSec(props) {
+  var p = props || {}
+  var n = parseInt(p.resolveIntervalSec, 10)
+  if (!isFinite(n)) n = 1200
+  if (n < 300) n = 300
+  if (n > 86400) n = 86400
+  return n
+}
+
+/**
+ * Video widget height: explicit `height` wins; else `size` token; else 240.
+ * Tokens: xs=120 sm=160 md=240 lg=320 xl=400 2xl=480
+ * When `aspect` is `16:9` / `16/9` and width > 0, height = width * 9/16
+ * (wins over size; still clamped 80–1200). Explicit `height` still wins.
+ */
+function videoHeight(props, width) {
+  var p = props || {}
+  if (p.height != null) {
+    var h = parseInt(p.height, 10)
+    if (isFinite(h)) {
+      if (h < 80) h = 80
+      if (h > 1200) h = 1200
+      return h
+    }
+  }
+  var aspect = String(p.aspect || "").replace(/\s/g, "")
+  if ((aspect === "16:9" || aspect === "16/9") && width != null) {
+    var w = Number(width)
+    if (isFinite(w) && w > 0) {
+      var ah = Math.round(w * 9 / 16)
+      if (ah < 80) ah = 80
+      if (ah > 1200) ah = 1200
+      return ah
+    }
+  }
+  var token = String(p.size || "md")
+  var map = { xs: 120, sm: 160, md: 240, lg: 320, xl: 400, "2xl": 480 }
+  return map[token] || 240
+}
+
+/**
+ * VideoOutput fillMode from props.fit. Default cover (no letterbox).
+ * contain → PreserveAspectFit, cover → PreserveAspectCrop, stretch → Stretch.
+ */
+function videoFillMode(props) {
+  var fit = String((props && props.fit) || "cover").toLowerCase()
+  if (fit === "contain" || fit === "fit") return "contain"
+  if (fit === "stretch" || fit === "fill") return "stretch"
+  return "cover"
+}
+
+/**
+ * Image widget height: explicit `height` (40–2000), else default 160.
+ */
+function imageHeight(props) {
+  var p = props || {}
+  if (p.height != null) {
+    var h = parseInt(p.height, 10)
+    if (isFinite(h)) {
+      if (h < 40) h = 40
+      if (h > 2000) h = 2000
+      return h
+    }
+  }
+  return 160
+}
+
+/** Alt text for Image — `altField` (+ dataset / row) or static `alt`. */
+function boundAlt(props, screen, dataRow) {
+  if (!props) return ""
+  if (props.altField) {
+    var row = dataRow !== undefined && dataRow !== null
+      ? dataRow
+      : (props.dataset ? (asRows(datasetOf(screen, props.dataset))[0] || null) : null)
+    if (row) {
+      var val = readField(row, props.altField)
+      if (val !== undefined && val !== null && String(val).length) return String(val)
+    }
+  }
+  return props.alt !== undefined && props.alt !== null ? String(props.alt) : ""
+}
+
+/**
+ * Anchor / link label: `labelField` (+ dataset / row) or static `label`.
+ */
+function boundLabel(props, screen, dataRow) {
+  if (!props) return ""
+  if (props.labelField) {
+    var row = dataRow !== undefined && dataRow !== null
+      ? dataRow
+      : (props.dataset ? (asRows(datasetOf(screen, props.dataset))[0] || null) : null)
+    if (row) {
+      var val = readField(row, props.labelField)
+      if (val !== undefined && val !== null && String(val).length) return String(val)
+    }
+  }
+  return props.label !== undefined && props.label !== null ? String(props.label) : ""
+}
+
+/**
+ * Anchor href: `hrefField` (+ dataset / row) or static `href`, http(s) only.
+ */
+function boundHref(props, screen, dataRow) {
+  if (!props) return ""
+  var raw = ""
+  if (props.hrefField) {
+    var row = dataRow !== undefined && dataRow !== null
+      ? dataRow
+      : (props.dataset ? (asRows(datasetOf(screen, props.dataset))[0] || null) : null)
+    if (row) {
+      var val = readField(row, props.hrefField)
+      if (val !== undefined && val !== null) raw = String(val)
+    }
+  }
+  if (!raw.length && props.href !== undefined && props.href !== null)
+    raw = String(props.href)
+  return openableUrl(raw)
+}
+
 /**
  * Marquee / ticker text. With dataset + textField and multiple rows, joins
  * all field values (separator default " · "). Otherwise same as boundText.
@@ -258,6 +539,50 @@ function fontToken(token) {
     case "2xl": return "displayLarge"
     default: return "body"
   }
+}
+
+/** Table header: one step smaller than cell `fontToken(size)`. */
+function tableHeaderFontToken(token) {
+  switch (String(token || "md")) {
+    case "xs":
+    case "sm":
+      return "caption"
+    case "md":
+      return "bodySmall"
+    case "lg":
+      return "body"
+    case "xl":
+      return "title"
+    case "2xl":
+      return "display"
+    default:
+      return "bodySmall"
+  }
+}
+
+/** List meta line: two steps smaller than title `fontToken(size)`. */
+function listMetaFontToken(token) {
+  switch (String(token || "md")) {
+    case "xs":
+    case "sm":
+    case "md":
+      return "caption"
+    case "lg":
+      return "bodySmall"
+    case "xl":
+      return "body"
+    case "2xl":
+      return "title"
+    default:
+      return "caption"
+  }
+}
+
+/** Only http(s) — used before Qt.openUrlExternally from table cells. */
+function openableUrl(value) {
+  var u = String(value == null ? "" : value).trim()
+  if (u.indexOf("http://") === 0 || u.indexOf("https://") === 0) return u
+  return ""
 }
 
 /**

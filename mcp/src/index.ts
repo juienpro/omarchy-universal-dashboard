@@ -6,6 +6,7 @@ import {
   getCarousel,
   getScreen,
   listDatasets,
+  listOverlays,
   loadViewOnScreen,
   listViews,
   refreshDataset,
@@ -14,6 +15,7 @@ import {
   summarizeScreen,
   toggleCarousel,
 } from "./store.js";
+import { resolveYoutube, ytDlpAvailable } from "./youtube.js";
 
 const args = process.argv.slice(2);
 const cmd = args[0] || "serve";
@@ -29,6 +31,10 @@ async function main() {
   }
   if (cmd === "views") {
     process.stdout.write(JSON.stringify({ views: listViews() }, null, 2) + "\n");
+    return;
+  }
+  if (cmd === "overlays") {
+    process.stdout.write(JSON.stringify({ overlays: listOverlays() }, null, 2) + "\n");
     return;
   }
   if (cmd === "datasets") {
@@ -100,16 +106,34 @@ async function main() {
     process.stdout.write(JSON.stringify(result, null, 2) + "\n");
     return;
   }
+  if (cmd === "youtube-resolve") {
+    const input = args[1];
+    if (!input) {
+      process.stderr.write("usage: universal-dashboard youtube-resolve <url|videoId>\n");
+      process.exit(2);
+    }
+    const resolved = await resolveYoutube(input);
+    process.stdout.write(JSON.stringify(resolved, null, 2) + "\n");
+    return;
+  }
   if (cmd === "doctor") {
+    const ytdlp = await ytDlpAvailable();
     process.stdout.write(
       JSON.stringify(
         {
           ok: true,
-          version: "0.1.0",
+          version: "0.3.0",
           screen: summarizeScreen(getScreen()),
           views: listViews(),
+          overlays: listOverlays(),
           datasets: listDatasets(),
           carousel: getCarousel(),
+          youtube: {
+            ytDlp: ytdlp,
+            note: ytdlp
+              ? "yt-dlp on PATH — Youtube widgets can resolve streams"
+              : "yt-dlp missing — install for Youtube widget playback",
+          },
         },
         null,
         2,
@@ -119,7 +143,7 @@ async function main() {
   }
   process.stderr.write(`Unknown command: ${cmd}\n`);
   process.stderr.write(
-    "usage: universal-dashboard <serve|status|views|datasets|carousel|load-view|delete-view|refresh|refresh-due|doctor>\n",
+    "usage: universal-dashboard <serve|status|views|overlays|datasets|carousel|load-view|delete-view|refresh|refresh-due|youtube-resolve|doctor>\n",
   );
   process.exit(2);
 }

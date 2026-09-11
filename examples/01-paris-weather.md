@@ -1,0 +1,1 @@
+Build a Paris weather dashboard titled “Weather in Paris”. Refresh every ~10 minutes. Use French units. All labels must be in english. 

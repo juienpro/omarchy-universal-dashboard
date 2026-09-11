@@ -43,3 +43,23 @@ export {
   TEXT_COLOR_TOKENS,
 } from "./themes.js";
 export type { TextColorToken, ThemeId, ThemeMeta } from "./themes.js";
+
+export {
+  OVERLAY_ANCHORS,
+  OVERLAY_DOCK_EDGES,
+  OVERLAY_MODES,
+  normalizeOverlayChrome,
+  overlayChrome,
+  overlayDockEdge,
+  overlayHAlign,
+  overlaySize,
+  overlayVAlign,
+  resolveOverlaySizePx,
+} from "./overlay.js";
+export type {
+  OverlayAnchor,
+  OverlayChrome,
+  OverlayDockEdge,
+  OverlayMode,
+  OverlaySize,
+} from "./overlay.js";

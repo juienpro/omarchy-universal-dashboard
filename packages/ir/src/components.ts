@@ -161,6 +161,8 @@ export const titleNode = z.object({
   props: propsObject({
     text: z.string().optional(),
     textField: z.string().optional(),
+    /** With `textField`: read from this dataset (first row / object). Inside HorizontalTiles, omit — row comes from parent. */
+    dataset: datasetKey.optional(),
     order: z.number().int().min(1).max(6).default(2),
     size: sizeToken.optional(),
     ...textStyleProps,
@@ -172,6 +174,8 @@ export const textNode = z.object({
   props: propsObject({
     text: z.string().optional(),
     textField: z.string().optional(),
+    /** With `textField`: read from this dataset (first row / object). Inside HorizontalTiles, omit — row comes from parent. */
+    dataset: datasetKey.optional(),
     c: z.enum(["dimmed", "default"]).optional(),
     size: sizeToken.optional(),
     ...textStyleProps,
@@ -215,10 +219,84 @@ export const imageNode = z.object({
   props: propsObject({
     src: z.string().optional(),
     srcField: z.string().optional(),
+    /** With `srcField`: read from this dataset (first row). Inside HorizontalTiles / List, omit — row supplies fields. */
+    dataset: datasetKey.optional(),
     alt: z.string().default(""),
     altField: z.string().optional(),
     height: z.number().int().min(40).max(2000).optional(),
     radius: sizeToken.optional(),
+  }),
+});
+
+export const videoFit = z.enum(["contain", "cover", "stretch"]);
+export type VideoFit = z.infer<typeof videoFit>;
+
+/**
+ * Inline video / stream (Qt Multimedia). URL via `src` or `srcField` (+ optional
+ * `dataset`). HLS (.m3u8) may work via FFmpeg — depends on codecs / stream.
+ */
+export const videoNode = z.object({
+  type: z.literal("Video"),
+  props: propsObject({
+    src: z.string().optional(),
+    srcField: z.string().optional(),
+    dataset: datasetKey.optional(),
+    /**
+     * Pixel height (80–1200). Wins over `size` when both set.
+     * Default 240 when neither `height` nor `size` is set.
+     */
+    height: z.number().int().min(80).max(1200).optional(),
+    /** Preset height when `height` omitted: xs=120 … 2xl=480. Default md. */
+    size: sizeToken.optional(),
+    /**
+     * When set to `16:9` (and `height` omitted), widget height tracks width
+     * so the box matches typical video aspect (less empty chrome).
+     */
+    aspect: z.enum(["16:9"]).optional(),
+    /**
+     * How the frame fills the widget box. Default `cover` (crop to fill — no
+     * letterbox). `contain` letterboxes; `stretch` ignores aspect.
+     */
+    fit: videoFit.optional(),
+    /** Start playback when the source is ready. Default true. */
+    autoPlay: z.boolean().optional(),
+    /** Unmute by default. Default false (muted). Hover chrome can still toggle. */
+    sound: z.boolean().optional(),
+    /** Show play/mute hover chrome. Default true. */
+    controls: z.boolean().optional(),
+  }),
+});
+
+/**
+ * YouTube watch URL / video id → resolved media URL via yt-dlp (signed URLs
+ * refreshed on an interval). Plays through Qt Multimedia — not a WebEngine iframe.
+ */
+export const youtubeNode = z.object({
+  type: z.literal("Youtube"),
+  props: propsObject({
+    /** Watch / youtu.be / embed URL, or bare 11-char video id. */
+    src: z.string().optional(),
+    /** Explicit 11-char id (wins over parsing `src` when both set). */
+    videoId: z.string().min(6).max(20).optional(),
+    srcField: z.string().optional(),
+    videoIdField: z.string().optional(),
+    dataset: datasetKey.optional(),
+    height: z.number().int().min(80).max(1200).optional(),
+    size: sizeToken.optional(),
+    /** Same as Video — default `cover` (fill box, crop edges). */
+    fit: videoFit.optional(),
+    /** When `16:9` and `height` omitted, height tracks width. */
+    aspect: z.enum(["16:9"]).optional(),
+    autoPlay: z.boolean().optional(),
+    /** Unmute by default. Default false. Hover chrome can toggle mute. */
+    sound: z.boolean().optional(),
+    /** Show play/mute hover chrome. Default true. */
+    controls: z.boolean().optional(),
+    /**
+     * How often to re-resolve the signed stream (seconds). Default 1200 (20 min).
+     * Min 300. Also re-resolves on playback error.
+     */
+    resolveIntervalSec: z.number().int().min(300).max(86_400).optional(),
   }),
 });
 
@@ -227,6 +305,8 @@ export const badgeNode = z.object({
   props: propsObject({
     text: z.string().optional(),
     textField: z.string().optional(),
+    /** With `textField`: read from this dataset (first row / object). Inside HorizontalTiles, omit — row comes from parent. */
+    dataset: datasetKey.optional(),
     color: z.string().optional(),
   }),
 });
@@ -302,6 +382,8 @@ export const listNode = z.object({
     /** When set, clicks open this internal detail (on-demand) using hrefField as the item URL. */
     detailKey: z.string().min(1).max(128).optional(),
     limit: z.number().int().min(1).max(200).optional(),
+    /** Title text size (`xs`…`2xl`). Default `md`. Subtitle/meta step down. */
+    size: sizeToken.optional(),
   }),
 });
 
@@ -350,6 +432,11 @@ export const tableColumn = propsObject({
   field: z.string().min(1),
   label: z.string().min(1),
   width: z.number().int().min(40).max(800).optional(),
+  /**
+   * When set, cell text is clickable and opens this row field as a URL
+   * (http/https only). Display text still comes from `field`.
+   */
+  hrefField: z.string().min(1).optional(),
 });
 
 export const tableNode = z.object({
@@ -359,6 +446,8 @@ export const tableNode = z.object({
     columns: z.array(tableColumn).min(1),
     pageSize: z.number().int().min(5).max(100).default(20),
     sortable: z.boolean().default(true),
+    /** Cell text size (`xs`…`2xl`). Default `md` (= body). Headers one step smaller. */
+    size: sizeToken.optional(),
   }),
 });
 
@@ -407,6 +496,9 @@ export const anchorNode = z.object({
     labelField: z.string().optional(),
     href: z.string().optional(),
     hrefField: z.string().optional(),
+    /** With `labelField` / `hrefField`: read from this dataset (first row). Inside HorizontalTiles, omit. */
+    dataset: datasetKey.optional(),
+    size: sizeToken.optional(),
   }),
 });
 
@@ -423,6 +515,8 @@ export const nodeBody = z.discriminatedUnion("type", [
   marqueeNode,
   markdownNode,
   imageNode,
+  videoNode,
+  youtubeNode,
   badgeNode,
   iconNode,
   statNode,
